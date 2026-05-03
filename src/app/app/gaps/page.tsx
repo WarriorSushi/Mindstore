@@ -142,7 +142,9 @@ export default function KnowledgeGapsPage() {
       setStats(data.stats || null);
       setSuggestions(data.suggestions || []);
     } catch (err: any) {
-      setError(err.message);
+      const msg = err instanceof Error ? err.message : 'Failed to load knowledge gaps';
+      setError(msg);
+      toast.error('Could not load knowledge gaps', { description: msg });
     } finally {
       setLoading(false);
     }

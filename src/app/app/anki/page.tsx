@@ -8,6 +8,7 @@ import {
   CheckCircle2, Copy,
 } from "lucide-react";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { toast } from "sonner";
 import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -75,7 +76,9 @@ export default function AnkiExportPage() {
       setFormats(data.formats || []);
       setTotalCards(data.totalCards || 0);
     } catch (e: any) {
-      setError(e.message);
+      const msg = e instanceof Error ? e.message : "Failed to load Anki decks";
+      setError(msg);
+      toast.error("Could not load Anki decks", { description: msg });
     } finally {
       setLoading(false);
     }

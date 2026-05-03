@@ -136,11 +136,13 @@ export default function ResumeBuilderPage() {
   const fetchResumes = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/plugins/resume-builder?action=list");
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(`Failed to load resumes (${res.status})`);
       const data = await res.json();
       setResumes(data.resumes || []);
     } catch (err: any) {
+      const msg = err instanceof Error ? err.message : "Failed to load resumes";
       console.error(err);
+      toast.error("Could not load resumes", { description: msg });
     } finally {
       setLoading(false);
     }

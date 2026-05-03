@@ -7,6 +7,7 @@ import { Brain, RefreshCw, Loader2, Lightbulb, Network, Link2, Layers } from 'lu
 import { usePageTitle } from "@/lib/use-page-title";
 import { PageTransition } from "@/components/PageTransition";
 import { EmptyFeatureState } from "@/components/EmptyFeatureState";
+import { toast } from "sonner";
 
 // Dynamic import reagraph (WebGL, can't SSR)
 const GraphCanvas = dynamic(
@@ -30,10 +31,12 @@ export default function FingerprintPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/v1/fingerprint');
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) throw new Error(`Failed to load fingerprint (${res.status})`);
       setData(await res.json());
     } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to generate fingerprint';
       console.error('Failed to generate fingerprint:', e);
+      toast.error('Could not generate fingerprint', { description: msg });
     } finally {
       setLoading(false);
     }

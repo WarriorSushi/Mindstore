@@ -146,7 +146,9 @@ export default function RetrievalPage() {
           setStats(data);
         }
       } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Failed to load RAG config';
         console.error('Failed to load RAG config:', e);
+        toast.error('Could not load RAG configuration', { description: msg });
       } finally {
         setLoading(false);
       }

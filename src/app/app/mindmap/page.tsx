@@ -8,6 +8,7 @@ import {
   MessageSquare, FileText, Globe, Type, BookOpenCheck, FileBox, Gem,
 } from 'lucide-react';
 import { PageTransition, Stagger } from '@/components/PageTransition';
+import { toast } from 'sonner';
 import { EmptyState } from '@/components/EmptyState';
 import { EmptyFeatureState } from '@/components/EmptyFeatureState';
 import { usePageTitle } from "@/lib/use-page-title";
@@ -830,7 +831,9 @@ export default function MindMapPage() {
       const json = await res.json();
       setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      const msg = e instanceof Error ? e.message : 'Failed to generate mind map';
+      setError(msg);
+      toast.error('Could not generate mind map', { description: msg });
     } finally {
       setLoading(false);
     }

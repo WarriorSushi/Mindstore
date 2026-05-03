@@ -121,10 +121,12 @@ export default function LearningPathsPage() {
     try {
       setLoading(true);
       const res = await fetch("/api/v1/plugins/learning-paths?action=list");
+      if (!res.ok) throw new Error(`Failed to load learning paths (${res.status})`);
       const data = await res.json();
       setPaths(data.paths || []);
-    } catch {
-      toast.error("Failed to load learning paths");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load learning paths";
+      toast.error("Could not load learning paths", { description: msg });
     } finally {
       setLoading(false);
     }

@@ -269,11 +269,13 @@ export default function NewsletterPage() {
   const fetchNewsletters = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/plugins/newsletter-writer?action=newsletters");
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) throw new Error(`Failed to load newsletters (${res.status})`);
       const data = await res.json();
       setNewsletters(data.newsletters || []);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load newsletters";
       console.error(err);
+      toast.error("Could not load newsletters", { description: msg });
     } finally {
       setLoading(false);
     }
