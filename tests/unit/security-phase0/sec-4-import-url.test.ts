@@ -75,7 +75,8 @@ describe("/api/v1/import-url auth + SSRF gate (SEC-4)", () => {
       const res = await postUrl(blocked);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toMatch(/not allowed/i);
+      // safeFetch surfaces specific reasons: scheme, localhost, private IPv4/IPv6
+      expect(body.error).toMatch(/(not allowed|http and https|localhost)/i);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
   });

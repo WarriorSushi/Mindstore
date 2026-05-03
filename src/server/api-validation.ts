@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { errors } from './api-errors';
 import { NextResponse } from 'next/server';
 import { getUserId } from './user';
+import { promises as dns } from 'node:dns';
 
 /**
  * Resolve the calling user's ID, returning a 401 NextResponse when no
@@ -134,4 +135,101 @@ function isPrivateIPv6(host: string): boolean {
   // fe80::/10 — link-local (fe80–febf prefix)
   if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;
   return false;
+}
+
+/**
+ * SafeFetch — DNS-resolved-IP-aware fetch wrapper that defends against
+ * the SSRF DNS rebinding class of attacks beyond what `isPublicHttpUrl`
+ * alone can catch.
+ *
+ * Pipeline:
+ *   1. Validate URL shape with `isPublicHttpUrl` (sync IP-literal check).
+ *   2. If hostname is not a literal IP, resolve it via `dns.lookup({all:true})`
+ *      and assert every resolved address is also public.
+ *   3. Perform the fetch with an AbortController-driven timeout.
+ *
+ * Residual risk: between step 2 and step 3 there is a TOCTOU window where
+ * DNS could rebind. The robust fix is a custom http/https Agent whose
+ * `lookup` callback re-validates per-attempt; that is documented as a
+ * Phase-2 follow-up in STATUS.md (ARCH-14 residual). The current pre-check
+ * still defeats most off-the-shelf rebinding tools.
+ *
+ * Throws `SafeFetchError` for guard failures (with `status: 400`) and for
+ * upstream errors (with `status: 502` or original status). Callers convert
+ * to NextResponse as needed.
+ */
+export class SafeFetchError extends Error {
+  constructor(message: string, readonly status: number = 400) {
+    super(message);
+    this.name = 'SafeFetchError';
+  }
+}
+
+export interface SafeFetchOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+export async function safeFetch(
+  rawUrl: string,
+  options: SafeFetchOptions = {},
+): Promise<Response> {
+  const guard = isPublicHttpUrl(rawUrl);
+  if (!guard.ok) {
+    throw new SafeFetchError(guard.reason, 400);
+  }
+  const url = guard.url;
+
+  const host = url.hostname.toLowerCase();
+  const cleaned = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  const isLiteralIp = isIPv4Literal(cleaned) || (cleaned.includes(':') && !cleaned.startsWith('['));
+
+  // For non-literal hostnames, resolve DNS and re-validate.
+  if (!isLiteralIp) {
+    try {
+      const addresses = await dns.lookup(cleaned, { all: true, verbatim: true });
+      for (const { address, family } of addresses) {
+        if (family === 4 && isPrivateIPv4(address)) {
+          throw new SafeFetchError(`Hostname resolves to private IPv4 (${address})`, 400);
+        }
+        if (family === 6 && isPrivateIPv6(address)) {
+          throw new SafeFetchError(`Hostname resolves to private IPv6 (${address})`, 400);
+        }
+      }
+    } catch (err) {
+      if (err instanceof SafeFetchError) throw err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+        throw new SafeFetchError(`Hostname does not resolve (${code})`, 400);
+      }
+      throw new SafeFetchError(`DNS lookup failed: ${(err as Error).message}`, 502);
+    }
+  }
+
+  // Perform the fetch with a timeout. We layer our timeout on top of any
+  // caller-provided signal. Track our own timer-fired flag so we can map
+  // the abort reason back to a 504 (vs a generic 502).
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: callerSignal, ...rest } = options;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error('Timeout'));
+  }, timeoutMs);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener('abort', () => controller.abort(callerSignal.reason), { once: true });
+  }
+
+  try {
+    return await fetch(url, { ...rest, signal: controller.signal });
+  } catch (err) {
+    if (timedOut || (err as Error).name === 'AbortError') {
+      throw new SafeFetchError(`Request timed out after ${timeoutMs}ms`, 504);
+    }
+    throw new SafeFetchError(`Upstream fetch failed: ${(err as Error).message}`, 502);
+  } finally {
+    clearTimeout(timer);
+  }
 }

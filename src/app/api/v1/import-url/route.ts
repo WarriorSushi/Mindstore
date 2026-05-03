@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
-import { isPublicHttpUrl, parseJsonBody, requireUserId } from '@/server/api-validation';
+import {
+  parseJsonBody,
+  requireUserId,
+  safeFetch,
+  SafeFetchError,
+} from '@/server/api-validation';
 
 const ImportUrlSchema = z.object({
   url: z.string().min(1),
@@ -25,28 +30,32 @@ export async function POST(req: NextRequest) {
   const body = await parseJsonBody(req, ImportUrlSchema);
   if (body instanceof NextResponse) return body;
 
-  // SSRF guard — only http(s), block private/loopback ranges.
-  const guard = isPublicHttpUrl(body.url);
-  if (!guard.ok) {
-    return NextResponse.json(
-      { error: 'URL is not allowed (private/loopback/non-http)' },
-      { status: 400 },
-    );
-  }
-  const parsed = guard.url;
-  const url = parsed.href;
-
+  let res: Response;
   try {
-
-    // Fetch the page server-side (no CORS issues)
-    const res = await fetch(url, {
+    // safeFetch enforces:
+    //   - http(s)-only
+    //   - literal-IP rejection (private/loopback)
+    //   - DNS lookup re-validation (defeats most SSRF DNS rebinding)
+    //   - 15s timeout
+    res = await safeFetch(body.url, {
       headers: {
         'User-Agent': 'MindStore/0.3 (knowledge-import)',
         'Accept': 'text/html,application/xhtml+xml,text/plain,*/*',
       },
-      signal: AbortSignal.timeout(15000), // 15s timeout
+      timeoutMs: 15000,
     });
+  } catch (err) {
+    if (err instanceof SafeFetchError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    const msg = err instanceof Error ? err.message : 'Unknown fetch error';
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
 
+  const url = res.url || body.url;
+  const parsed = new URL(url);
+
+  try {
     if (!res.ok) {
       return NextResponse.json({ error: `Failed to fetch (${res.status})` }, { status: 502 });
     }
