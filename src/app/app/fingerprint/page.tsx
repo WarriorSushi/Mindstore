@@ -104,11 +104,31 @@ export default function FingerprintPage() {
               Breakdown
             </button>
           </div>
+          {/* Snapshot */}
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/v1/fingerprint/snapshots', { method: 'POST' });
+                if (!res.ok) throw new Error(`Snapshot failed (${res.status})`);
+                toast.success('Snapshot captured', { description: 'Compare it later in Mind Diff.' });
+              } catch (e) {
+                toast.error('Snapshot failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+              }
+            }}
+            className="hidden sm:flex h-8 px-3 items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.06] transition-all active:scale-[0.95] text-[12px] text-zinc-400"
+            title="Capture a snapshot"
+            aria-label="Capture a fingerprint snapshot"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Snapshot
+          </button>
           {/* Refresh */}
           <button
             onClick={loadFingerprint}
             disabled={loading}
             className="w-8 h-8 flex items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.06] transition-all active:scale-[0.95] disabled:opacity-40"
+            title="Recompute fingerprint"
+            aria-label="Recompute fingerprint"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-zinc-400 ${loading ? 'animate-spin' : ''}`} />
           </button>

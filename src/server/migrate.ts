@@ -511,6 +511,23 @@ async function migrate() {
     )
   `);
 
+  // Phase 2 (Knowledge Fingerprint Snapshots, A.2) — periodic snapshots of
+  // the user's knowledge topology so Mind Diff (A.5) can compare two points in time.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS mind_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) NOT NULL,
+      taken_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      memory_count INTEGER NOT NULL DEFAULT 0,
+      source_breakdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+      cluster_centroids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      top_topics JSONB NOT NULL DEFAULT '[]'::jsonb,
+      fingerprint_svg TEXT,
+      trigger TEXT NOT NULL DEFAULT 'manual'
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_mind_snapshots_user ON mind_snapshots(user_id, taken_at DESC)`);
+
   // Phase 2 (Knowledge Metabolism Score, A.9) — weekly intellectual-fitness score
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS metabolism_scores (

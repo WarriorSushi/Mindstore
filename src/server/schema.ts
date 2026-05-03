@@ -391,6 +391,26 @@ export const indexingJobs = pgTable('indexing_jobs', {
   index('idx_indexing_jobs_user_type').on(table.userId, table.jobType, table.status),
 ]);
 
+// === PHASE 2 INNOVATION A.2: KNOWLEDGE FINGERPRINT SNAPSHOTS ===
+// Per FEATURE_BACKLOG.md A.2. A weekly snapshot of the user's knowledge
+// topology — memory_count, source_breakdown, cluster_centroids, plus a
+// renderable SVG badge. Mind Diff (A.5) compares two of these to produce
+// "what changed in your thinking between these two dates" reports.
+
+export const mindSnapshots = pgTable('mind_snapshots', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  takenAt: timestamp('taken_at').defaultNow().notNull(),
+  memoryCount: integer('memory_count').default(0).notNull(),
+  sourceBreakdown: jsonb('source_breakdown').default({}).notNull(),
+  clusterCentroids: jsonb('cluster_centroids').default([]).notNull(),
+  topTopics: jsonb('top_topics').default([]).notNull(),
+  fingerprintSvg: text('fingerprint_svg'),
+  trigger: text('trigger').default('manual').notNull(), // 'cron' | 'manual'
+}, (table) => [
+  index('idx_mind_snapshots_user').on(table.userId, table.takenAt),
+]);
+
 // === PHASE 2 INNOVATION: KNOWLEDGE METABOLISM SCORE ===
 // Tracks weekly intellectual fitness as a 0-10 score plus four components.
 // Per FEATURE_BACKLOG.md A.9. Computed via src/server/metabolism/calc.ts.
