@@ -17,11 +17,12 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | `node_modules` installed | ✅ Installed | Verified by Phase 0 security tests (`npx vitest run` reports 369 passing). |
 | `npm run typecheck` | ✅ Passing | Verified clean during Phase 0 security fix landing. |
 | `npm test` | ✅ 369 / 369 | 54 test files; 24 new tests in `tests/unit/security-phase0/` (7 files) cover SEC-1..SEC-7 + Gemini RETRIEVAL_QUERY. |
-| `npm run lint:ci` | ❓ Cannot run | Currently a curated subset; full repo lint is `lint:backlog`. |
-| `npm run build` | ❓ Cannot run | `.next/` exists from prior build, but stale. |
-| Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (stale) `NEXT_STEPS.md`. |
-| MCP endpoint | ✅ Reachable at `/api/mcp` | But unauthenticated — see §3 security backlog. |
-| CI configuration | ❌ None visible in `.github/workflows/` | Phase 1 deliverable. |
+| `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
+| `npm run build` | ✅ Passing | Clean Next.js 16 production build verified post-Phase-0. |
+| Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
+| MCP endpoint | ✅ Reachable at `/api/mcp` | Now Bearer-auth-required (SEC-6 closed). Single-user mode falls through when no bearer is present; invalid bearer is rejected. |
+| CI configuration | ✅ Present | `.github/workflows/ci.yml` (lint→typecheck→test→build→playwright) and `dco.yml` (DCO sign-off check). Both updated to accept `claude/**` branches and Node 24. |
+| `npm audit` advisories | ⚠️ 15 (9 moderate, 6 high) | Captured at Phase 0 install; `npm audit fix` follow-up gated on owner approval since some require breaking-change upgrades. Track as ARCH-13. |
 
 ---
 
@@ -34,8 +35,8 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | Plugin manifests in registry | 35 | README badge says 35 (matches now); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. |
-| Doc files (root + `docs/`) | 113 | Half are evergreen; the rest are stale or auto-generated artifacts. |
-| Unit test files | 48 | 345 individual test cases (not 336 as the badge claims). |
+| Doc files (root + `docs/`) | 113 | Plus 4 new master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts moved to `docs/archive/`. |
+| Unit test files | 54 | **369 individual test cases.** Includes 24 new Phase-0 security tests under `tests/unit/security-phase0/`. |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -75,7 +76,10 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-8 | Hand-maintained nav config in `src/app/app/AppShell.tsx`. Will rot as plugins are added. | Medium | Generate nav from registry + plugin UI manifest entries (Phase 1 polish). |
 | ARCH-9 | Embedding-dim mismatch handled defensively in retrieval (`vector_dims(m.embedding) = ${embDim}`) but no migration path when a user changes provider. | Medium | Add a "re-embed all" job; surface in settings when provider changes. |
 | ARCH-10 | Two near-duplicate routes: `/api/v1/stats` and `/api/v1/knowledge-stats`. | Low (per "additive only" rule, mark redundant — `knowledge-stats` subsumes `stats`) | Phase 0 cleanup: keep `knowledge-stats`, redirect `stats` callers, then deprecate `stats`. |
-| ARCH-11 | `src/server/apikey.ts` and `src/server/api-keys.ts` both exist. Smells like AI-generated drift. | Low | Audit, consolidate to one file. |
+| ARCH-11 | `src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist. | Low | Phase 1 cleanup: confirm only `api-keys.ts` is referenced, then delete `apikey.ts`. |
+| ARCH-12 | Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`. Functional today, but a maintenance hazard. | Low | Phase 1: rename file → match registry, register old slug as alias for back-compat. |
+| ARCH-13 | `npm install` reports 15 advisories (9 moderate, 6 high). | Medium | Phase 1: run `npm audit fix`; defer `--force`/breaking upgrades to a dedicated PR with owner sign-off. |
+| ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | Phase 1: add fetch-time IP check via `dns.lookup` + custom agent that re-validates the resolved IP before connecting. Surface for any new SSRF-prone routes too. |
 
 ---
 
@@ -224,7 +228,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | 7 | Thought Threading | absent | 3 |
 | 8 | `.mind` Portable File | absent (spec exists) | 4 |
 | 9 | Knowledge Metabolism Score | absent | 2 |
-| 10 | MCP Server | shipped | 0 (security harden) |
+| 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
 | N1 | Mind Marketplace | absent | 4 |
 | N2 | Knowledge Attack Surface | absent | 4 |
 | N3 | Knowledge Oracle | absent | 5 |
@@ -242,25 +246,25 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 
 | File | State | Action |
 |---|---|---|
-| `README.md` | TRUTH-PASS-NEEDED | Fix counts, partition roadmap, add link to `STATUS.md`. |
-| `ARCHITECTURE.md` | STALE | Fix embedding-default + S3 claims; clarify tree-layer reality. |
-| `INNOVATIONS.md` | ASPIRATIONAL | Move to `docs/archive/INNOVATIONS_aspirational.md`; replace with link from `FEATURE_BACKLOG.md`. |
-| `NEXT_PHASE.md`, `NEXT_STEPS.md` | DEAD | Move to `docs/archive/`. |
-| `MIND_FILE_SPEC.md` | SPEC-ONLY | Move to `docs/archive/MIND_FILE_SPEC_v0.md`; will be revived as Phase-4 design when implementation starts. |
-| `IMPROVEMENTS.md` | LOG | Move to `docs/archive/IMPROVEMENTS_cron_log.md`. |
-| `GOVERNANCE.md` | FALSE-CLAIM | Fix line 60 ("MIT-licensed" → "FSL-1.1-MIT licensed"); add named maintainer. |
-| `CONTRIBUTING.md` | KEEP+FIX | Update test count (336→345), confirm port (3000 vs claimed 3300). |
-| `CLAUDE.md` | STUB | Replace with a real agent context pointer to `CLAUDE_TAKEOVER.md` + `STATUS.md`. |
-| `AGENTS.md` | STUB | Replace with a real agent context (Next.js 16 conventions + repo map). |
+| `README.md` | ✅ TRUTH-PASSED (Phase 0) | Counts fixed (345 tests, 77 routes), roadmap partitioned, links to `STATUS.md`. |
+| `ARCHITECTURE.md` | ✅ FIXED (Phase 0) | Embedding default corrected to Gemini, S3 claim replaced with truth, tree-layer scope clarified. |
+| `INNOVATIONS.md` | ✅ ARCHIVED (Phase 0) | Now `docs/archive/INNOVATIONS_aspirational.md` with provenance header. |
+| `NEXT_PHASE.md`, `NEXT_STEPS.md` | ✅ ARCHIVED (Phase 0) | In `docs/archive/`. |
+| `MIND_FILE_SPEC.md` | ✅ ARCHIVED (Phase 0) | Now `docs/archive/MIND_FILE_SPEC_v0.md`; will revive as v1 design when Phase 4 begins. |
+| `IMPROVEMENTS.md` | ✅ ARCHIVED (Phase 0) | Now `docs/archive/IMPROVEMENTS_cron_log.md`. |
+| `GOVERNANCE.md` | ✅ FIXED (Phase 0) | License claim corrected to FSL-1.1-MIT. Named-maintainer entry deferred to owner. |
+| `CONTRIBUTING.md` | KEEP+FIX (deferred) | Test count update + port confirmation pending; not blocking. |
+| `CLAUDE.md` | ✅ REPLACED (Phase 0) | Real agent context, points at CLAUDE_TAKEOVER + STATUS. |
+| `AGENTS.md` | ✅ REPLACED (Phase 0) | Real Next.js 16 / repo-map agent guidance. |
 | `.impeccable.md` | KEEP | Design system reference; useful. |
-| `PRODUCTION.md` | KEEP+FIX | Use `{VERCEL_URL}` placeholder in OAuth section. |
+| `PRODUCTION.md` | KEEP+FIX (deferred) | `{VERCEL_URL}` placeholder pending; not blocking. |
 | `LICENSE`, `LICENSING.md`, `TRADEMARKS.md`, `DCO.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `NOTICE` | KEEP | Untouched legal/community surface. |
-| `docs/codex/*` | LOG | Move to `docs/archive/codex/`. |
+| `docs/codex/*` | ✅ ARCHIVED (Phase 0) | Now `docs/archive/codex/`. |
 | `docs/adr/*` | KEEP | Real architecture decisions; continue convention. |
 | `docs/releases/*` | KEEP | Real release notes; continue. |
 | `docs/getting-started/*`, `docs/build/*`, `docs/deploy/*`, `docs/api-reference/*`, `docs/plugins/*` | KEEP | Reviewed individually in Phase 0. |
 
-**New docs to create (Phase 0):**
+**New docs still to create (Phase 1):**
 - `RUNBOOK.md` (root) — operations playbook for production.
 - `CHANGELOG.md` (root) — generated from `docs/releases/`.
 - `TESTING_STRATEGY.md` (root) — how tests are organized + what to write.
@@ -286,24 +290,51 @@ Only the owner can resolve these. Each is named so I can reference it in subsequ
 
 ## 9. Roadmap progress (running tally)
 
-Phase 0 — Truth Pass:
+### Phase 0 — Truth Pass — ✅ CLOSED 2026-05-03
+
 - [x] Five parallel audits dispatched and collated.
 - [x] `CLAUDE_TAKEOVER.md` written.
 - [x] `STATUS.md` written (this file).
-- [ ] `PRODUCTION_READINESS.md` written.
-- [ ] `FEATURE_BACKLOG.md` written.
-- [ ] README truth pass.
-- [ ] `GOVERNANCE.md` license fix.
-- [ ] `ARCHITECTURE.md` S3 + embedding fixes.
-- [ ] Replace `CLAUDE.md` and `AGENTS.md` stubs.
-- [ ] Move stale docs to `docs/archive/`.
-- [ ] `npm install` + verify `npm test`, `npm run typecheck`, `npm run build`.
-- [ ] CI workflow under `.github/workflows/`.
-- [x] Fix SEC-1 and SEC-2 (`/api/v1/settings` auth).
+- [x] `PRODUCTION_READINESS.md` written.
+- [x] `FEATURE_BACKLOG.md` written.
+- [x] README truth pass (counts fixed, roadmap partitioned, every claim preserved).
+- [x] `GOVERNANCE.md` license fix.
+- [x] `ARCHITECTURE.md` S3 + embedding fixes.
+- [x] Replace `CLAUDE.md` and `AGENTS.md` stubs.
+- [x] Move stale docs to `docs/archive/` (INNOVATIONS, NEXT_PHASE, NEXT_STEPS, MIND_FILE_SPEC, IMPROVEMENTS, codex/).
+- [x] `npm install` + verify `npm test`, `npm run typecheck`, `npm run build`, `npm run lint:ci` — all green.
+- [x] CI workflow updated for `claude/**` branches and Node 24 (existing `.github/workflows/ci.yml` and `dco.yml`).
+- [x] Fix SEC-1 and SEC-2 (`/api/v1/settings` auth + write rate limit).
 - [x] Fix SEC-3, SEC-4, SEC-5, SEC-6, SEC-7 (embed/import-url/plugin-jobs/mcp/health).
 - [x] Fix the Gemini `RETRIEVAL_QUERY` embedding bug (`generateEmbeddings(texts, { mode })`).
+- [x] Add 24 Phase-0 security tests under `tests/unit/security-phase0/`.
 
-Phases 1-5: see `PRODUCTION_READINESS.md`.
+**Phase 0 acceptance gate met.** Full suite: 369/369 tests across 54 files. Typecheck + lint:ci + build all clean. Three commits on `main`: `7a55d2b`, `e18362d`, `a74742c`.
+
+### Phase 1 — Production Hardening — IN FLIGHT
+
+Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
+
+- [ ] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (delete the legacy file).
+- [ ] ARCH-12: rename plugin port files to match registry slugs + alias map.
+- [ ] ARCH-14: add fetch-time DNS-resolved IP check to `isPublicHttpUrl()`.
+- [ ] ARCH-13: run `npm audit fix` (non-breaking only); breaking upgrades in a separate owner-approved PR.
+- [ ] ARCH-10: deprecate `/api/v1/stats` in favor of `/api/v1/knowledge-stats`; redirect callers.
+- [ ] Generate nav from registry (replace hand-maintained `AppShell.tsx` config).
+- [ ] Page-polish sweep: 17 EMPTY pages, 16 ERR-WRAP pages, 8 A11Y pages (sub-agent dispatch).
+- [ ] Add inline rate-limits to ~40 routes that lack them (sub-agent dispatch).
+- [ ] WebGL fallback path on `/app/mindmap` and `/app/fingerprint`.
+- [ ] E2E test scaffold: 6 golden paths under `tests/e2e/golden-paths.spec.ts`.
+- [ ] `RUNBOOK.md`, `CHANGELOG.md`, `TESTING_STRATEGY.md`, `docs/PLUGIN_MATURITY_MATRIX.md`.
+
+**Blocked on owner action (see §8):**
+- ARCH-1 (per-user settings migration) — gated on BLOCK-5 multi-user vs single-user decision.
+- ARCH-2 (`ENCRYPTION_KEY` rotation tooling) — needs BLOCK-3 env var set.
+- ARCH-5 (Vercel cron) — needs BLOCK-4 approval to add `crons` block.
+- BLOCK-1, 2 (provider keys + OAuth) — owner-only.
+- BLOCK-7 — pause the existing `Frain` cron / `codex` automated commits.
+
+Phases 2-5: see `PRODUCTION_READINESS.md`.
 
 ---
 
