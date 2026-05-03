@@ -97,7 +97,9 @@ export default function DomainEmbeddingsPage() {
       else throw new Error("Failed to load domain config");
       if (statsRes.ok) setStats(await statsRes.json());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load domain data");
+      const msg = e instanceof Error ? e.message : "Failed to load domain data";
+      setError(msg);
+      toast.error("Could not load domain analytics", { description: msg });
     }
     setLoading(false);
   }, []);

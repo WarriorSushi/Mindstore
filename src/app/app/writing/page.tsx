@@ -128,7 +128,9 @@ export default function WritingStylePage() {
       setAnalyzed(data.analyzed);
       setTotalEligible(data.totalEligible);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load writing style data');
+      const msg = err instanceof Error ? err.message : 'Failed to load writing style data';
+      setError(msg);
+      toast.error('Could not load writing style profile', { description: msg });
     } finally {
       setLoading(false);
     }

@@ -107,14 +107,19 @@ export default function BlogPage() {
 
   // ─── Fetch Drafts ──────────────────────────────────────────
 
+  const [draftsError, setDraftsError] = useState<string | null>(null);
+
   const fetchDrafts = useCallback(async () => {
+    setDraftsError(null);
     try {
       const res = await fetch("/api/v1/plugins/blog-draft?action=drafts");
-      if (!res.ok) throw new Error("Failed to fetch drafts");
+      if (!res.ok) throw new Error(`Failed to fetch drafts (${res.status})`);
       const data = await res.json();
       setDrafts(data.drafts || []);
-    } catch (err: any) {
-      console.error(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch drafts";
+      setDraftsError(msg);
+      toast.error("Could not load blog drafts", { description: msg });
     } finally {
       setLoading(false);
     }
@@ -960,8 +965,24 @@ export default function BlogPage() {
           </div>
         )}
 
+        {/* Inline error */}
+        {!loading && draftsError && (
+          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.06] p-4 flex items-center justify-between gap-3">
+            <div className="text-[13px] text-rose-300">
+              Could not load blog drafts. {draftsError}
+            </div>
+            <button
+              type="button"
+              onClick={fetchDrafts}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[12px] text-zinc-200 hover:bg-white/[0.08] transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Empty State */}
-        {!loading && drafts.length === 0 && (
+        {!loading && !draftsError && drafts.length === 0 && (
           <EmptyFeatureState
             icon={FileEdit}
             title="Blog Writer is ready when your knowledge is"

@@ -145,9 +145,15 @@ export default function LearnPage() {
   useEffect(() => {
     checkApiKey().then((data) => setHasApiKey(data.hasApiKey));
     fetch('/api/v1/memories?source=text&search=Learned%3A&limit=1')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load fact count (${r.status})`);
+        return r.json();
+      })
       .then(data => setFactsSaved(data.total || 0))
-      .catch(() => {});
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "Could not load fact count";
+        toast.error("Could not load saved facts", { description: msg });
+      });
   }, []);
 
   const saveFact = useCallback(async (fact: LearnedFact) => {

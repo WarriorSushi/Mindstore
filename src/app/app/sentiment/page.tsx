@@ -136,7 +136,9 @@ export default function SentimentPage() {
         setSummary(data);
       }
     } catch (e) {
-      setError('Failed to load sentiment data');
+      const msg = e instanceof Error ? e.message : 'Failed to load sentiment data';
+      setError(msg);
+      toast.error('Could not load sentiment timeline', { description: msg });
     } finally {
       setLoading(false);
     }

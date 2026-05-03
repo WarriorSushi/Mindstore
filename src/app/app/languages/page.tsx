@@ -102,7 +102,9 @@ export default function MultiLanguagePage() {
       else throw new Error("Failed to load language stats");
       if (checkRes.ok) setCheck(await checkRes.json());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load language data");
+      const msg = e instanceof Error ? e.message : "Failed to load language data";
+      setError(msg);
+      toast.error("Could not load language stats", { description: msg });
     }
     setLoading(false);
   }, []);

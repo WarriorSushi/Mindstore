@@ -99,14 +99,19 @@ export default function ConversationPrepPage() {
 
   // ─── Fetch History ─────────────────────────────────────────
 
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
   const fetchHistory = useCallback(async () => {
+    setHistoryError(null);
     try {
       const res = await fetch("/api/v1/plugins/conversation-prep?action=history");
-      if (!res.ok) throw new Error("Failed to fetch history");
+      if (!res.ok) throw new Error(`Failed to fetch history (${res.status})`);
       const data = await res.json();
       setHistory(data.briefings || []);
-    } catch (err: any) {
-      console.error(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch history";
+      setHistoryError(msg);
+      toast.error("Could not load past briefings", { description: msg });
     } finally {
       setLoading(false);
     }
@@ -552,8 +557,24 @@ export default function ConversationPrepPage() {
           </div>
         )}
 
+        {/* Inline error */}
+        {!loading && historyError && (
+          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.06] p-4 flex items-center justify-between gap-3">
+            <div className="text-[13px] text-rose-300">
+              Could not load briefings. {historyError}
+            </div>
+            <button
+              type="button"
+              onClick={fetchHistory}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[12px] text-zinc-200 hover:bg-white/[0.08] transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Empty State */}
-        {!loading && history.length === 0 && (
+        {!loading && !historyError && history.length === 0 && (
           <EmptyFeatureState
             icon={Users}
             title="Meeting Prep is ready when your knowledge is"

@@ -12,6 +12,7 @@ import { PageTransition, Stagger } from '@/components/PageTransition';
 import { EmptyState } from '@/components/EmptyState';
 import { EmptyFeatureState } from '@/components/EmptyFeatureState';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { usePageTitle } from "@/lib/use-page-title";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -122,7 +123,9 @@ export default function TopicEvolutionPage() {
       setShifts(data.shifts || []);
       setStats(data.stats || null);
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      const msg = err?.message || 'Something went wrong';
+      setError(msg);
+      toast.error('Could not load topic evolution', { description: msg });
     } finally {
       setLoading(false);
     }
