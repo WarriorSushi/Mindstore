@@ -75,11 +75,11 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-7 | `MCP` HTTP transport tears down `server` and `transport` per request. Streaming MCP tools with progress events won't work. | Low (current tools are JSON-response) | Pool the server instance per session if streaming tools are added. |
 | ARCH-8 | Hand-maintained nav config in `src/app/app/AppShell.tsx`. Will rot as plugins are added. | Medium | Generate nav from registry + plugin UI manifest entries (Phase 1 polish). |
 | ARCH-9 | Embedding-dim mismatch handled defensively in retrieval (`vector_dims(m.embedding) = ${embDim}`) but no migration path when a user changes provider. | Medium | Add a "re-embed all" job; surface in settings when provider changes. |
-| ARCH-10 | Two near-duplicate routes: `/api/v1/stats` and `/api/v1/knowledge-stats`. | Low (per "additive only" rule, mark redundant — `knowledge-stats` subsumes `stats`) | Phase 0 cleanup: keep `knowledge-stats`, redirect `stats` callers, then deprecate `stats`. |
+| ARCH-10 | ~~Two near-duplicate routes: `/api/v1/stats` and `/api/v1/knowledge-stats`.~~ | ✅ DEPRECATED (Phase 1, commit `14d50fa`) | `/api/v1/stats` returns RFC 8594 `Deprecation`/`Sunset: 2026-08-01`/`Link: rel=successor-version` headers + per-request `console.warn`. `/api/v1/knowledge-stats` carries all legacy fields. `src/lib/stats-adapter.ts` projects the legacy shape for migrating callers. |
 | ARCH-11 | ~~`src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist.~~ | ✅ DONE (Phase 1) | Legacy `apikey.ts` was unreferenced; deleted. `api-keys.ts` remains the single active validator. |
 | ARCH-12 | ~~Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`.~~ | ✅ DONE (Phase 1) | Port files renamed to match registry slugs. Old slugs registered as `aliases` so the runtime + DB lookups still resolve them. API route URLs (`/api/v1/plugins/youtube-transcript` etc.) preserved for back-compat with external clients. Also fixed two latent bugs the rename surfaced: a typo in `BUILTIN_OVERRIDES` key (`writing-style` → `writing-analyzer`) that had silently disabled the writing-analyzer dashboard widget, and a missing `ui.dashboardWidgets` manifest entry. |
-| ARCH-13 | `npm install` reports 15 advisories (9 moderate, 6 high). | Medium | Phase 1: run `npm audit fix`; defer `--force`/breaking upgrades to a dedicated PR with owner sign-off. |
-| ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | Phase 1: add fetch-time IP check via `dns.lookup` + custom agent that re-validates the resolved IP before connecting. Surface for any new SSRF-prone routes too. |
+| ARCH-13 | 🟡 PARTIAL (Phase 1, commit `8ee2d9d`) | Medium | `npm audit fix` applied (15 → 7 advisories). Remaining 7 require breaking-change upgrades (`next@16.2.4`, `uuid@14`); deferred to a dedicated PR with owner sign-off. |
+| ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | ⏳ NOT STARTED (Phase 1 remainder). Cleanup agent stopped at the limit before reaching this fix. Plan: add fetch-time `dns.lookup` re-validation in a `safeFetch` wrapper around `import-url`. |
 
 ---
 
@@ -164,6 +164,15 @@ Codes:
 - **A11Y** = icon-only div onClick instead of `<button aria-label>`
 - **MOBILE** = WebGL or fixed-width concerns on small screens
 
+**Page polish progress (Phase 1):**
+
+| Sweep | Initial flagged | Done | Remaining |
+|---|---|---|---|
+| Empty states | 17 | 17 (commit `433e285`) | — |
+| Inline error wrapping (ERR-WRAP) | 16 | 16 (commits `0bd693a` + `6bef21f`) | — |
+| Accessibility (A11Y) | 8+ | 0 | 8+ remain (`/app/explore`, `/app/blog`, `/app/gaps` + general sweep) |
+| WebGL 2D fallback | 2 | 0 | `/app/mindmap`, `/app/fingerprint` |
+
 | Path | Verdict | Flags |
 |---|---|---|
 | `/` | PRODUCTION | — |
@@ -173,29 +182,29 @@ Codes:
 | `/app/chat` | PRODUCTION | — |
 | `/app/import` | PRODUCTION | — |
 | `/app/explore` | WORKS | A11Y |
-| `/app/learn` | WORKS | EMPTY, ERR-WRAP |
+| `/app/learn` | PRODUCTION | — |
 | `/app/collections` | PRODUCTION | — |
-| `/app/mindmap` | PARTIAL | EMPTY, MOBILE |
-| `/app/fingerprint` | PARTIAL | EMPTY, MOBILE |
-| `/app/stats` | PRODUCTION | — |
+| `/app/mindmap` | WORKS | MOBILE |
+| `/app/fingerprint` | WORKS | MOBILE |
+| `/app/stats` | DEPRECATED 2026-08-01 | superseded by `/app/knowledge-stats` data |
 | `/app/insights` | PRODUCTION | — |
-| `/app/evolution` | WORKS | ERR-WRAP |
-| `/app/sentiment` | WORKS | ERR-WRAP |
+| `/app/evolution` | PRODUCTION | — |
+| `/app/sentiment` | PRODUCTION | — |
 | `/app/gaps` | WORKS | A11Y |
 | `/app/duplicates` | PRODUCTION | — |
-| `/app/writing` | WORKS | ERR-WRAP |
-| `/app/voice` | WORKS | EMPTY |
-| `/app/vision` | WORKS | EMPTY |
-| `/app/retrieval` | WORKS | EMPTY |
-| `/app/languages` | WORKS | ERR-WRAP |
-| `/app/domains` | WORKS | ERR-WRAP |
+| `/app/writing` | PRODUCTION | — |
+| `/app/voice` | PRODUCTION | — |
+| `/app/vision` | PRODUCTION | — |
+| `/app/retrieval` | PRODUCTION | — |
+| `/app/languages` | PRODUCTION | — |
+| `/app/domains` | PRODUCTION | — |
 | `/app/flashcards` | PRODUCTION | — |
-| `/app/blog` | WORKS | EMPTY, A11Y |
-| `/app/prep` | WORKS | EMPTY |
-| `/app/paths` | WORKS | EMPTY |
-| `/app/resume` | WORKS | EMPTY |
-| `/app/newsletter` | WORKS | EMPTY |
-| `/app/anki` | WORKS | EMPTY |
+| `/app/blog` | WORKS | A11Y |
+| `/app/prep` | PRODUCTION | — |
+| `/app/paths` | PRODUCTION | — |
+| `/app/resume` | PRODUCTION | — |
+| `/app/newsletter` | PRODUCTION | — |
+| `/app/anki` | PRODUCTION | — |
 | `/app/export` | PRODUCTION | — |
 | `/app/notion-sync` | WORKS | — |
 | `/app/obsidian-sync` | WORKS | — |
@@ -205,11 +214,9 @@ Codes:
 | `/app/plugins` | PRODUCTION | — |
 | `/app/onboarding` | WORKS | ORPHAN-by-design |
 
-**Page-state work (Phase 1):**
-- 17 pages need real empty states.
-- 16 pages need component-level error boundaries on top of `error.tsx`.
-- 8+ pages need accessibility fixes (icon-only div→button conversion).
-- WebGL pages need a 2D fallback for low-end mobile.
+**Page-state work remaining:**
+- A11Y on `/app/explore`, `/app/blog`, `/app/gaps` and a general icon-only-button sweep.
+- WebGL 2D fallback for `/app/mindmap` and `/app/fingerprint` (MOBILE flag).
 
 ---
 
@@ -315,16 +322,21 @@ Only the owner can resolve these. Each is named so I can reference it in subsequ
 
 Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 
-- [x] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (legacy file deleted; only `api-keys.ts` is referenced).
-- [x] ARCH-12: rename plugin port files to match registry slugs + alias map.
-- [ ] ARCH-14: add fetch-time DNS-resolved IP check to `isPublicHttpUrl()`.
-- [ ] ARCH-13: run `npm audit fix` (non-breaking only); breaking upgrades in a separate owner-approved PR.
-- [ ] ARCH-10: deprecate `/api/v1/stats` in favor of `/api/v1/knowledge-stats`; redirect callers.
+- [x] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (legacy file deleted; only `api-keys.ts` is referenced). Commit `76e7495`.
+- [x] ARCH-12: rename plugin port files to match registry slugs + alias map. Commit `cf85087`.
+- [x] ARCH-10: deprecate `/api/v1/stats` (sunset 2026-08-01); knowledge-stats expanded; `stats-adapter` lib added. Commit `14d50fa`.
+- [🟡] ARCH-13: non-breaking `npm audit fix` applied (15→7); breaking upgrades pending owner sign-off. Commit `8ee2d9d`.
+- [ ] ARCH-14: fetch-time DNS-resolved IP check (`safeFetch` helper) — agent stopped before this; remaining for next session.
+- [x] Page-polish sweep — empty states (17 pages). Commit `433e285`.
+- [x] Page-polish sweep — inline error wrapping (16 of 16 pages). Commits `0bd693a` + `6bef21f`.
+- [ ] Page-polish sweep — accessibility (8+ pages: `/app/explore`, `/app/blog`, `/app/gaps` + general icon-button audit).
+- [x] E2E test scaffold: 6 golden paths under `tests/e2e/golden-paths.spec.ts`. Commit `2e5a721`.
+- [x] ADR 0003 — per-user settings table design (resolves ARCH-1 once BLOCK-5 unblocks). Commit `b06a300`.
+- [x] `RUNBOOK.md`, `CHANGELOG.md`, `TESTING_STRATEGY.md`, `docs/PLUGIN_MATURITY_MATRIX.md`. Commit `34d24db`.
 - [ ] Generate nav from registry (replace hand-maintained `AppShell.tsx` config).
-- [ ] Page-polish sweep: 17 EMPTY pages, 16 ERR-WRAP pages, 8 A11Y pages (sub-agent dispatch).
-- [ ] Add inline rate-limits to ~40 routes that lack them (sub-agent dispatch).
-- [ ] WebGL fallback path on `/app/mindmap` and `/app/fingerprint`.
-- [ ] E2E test scaffold: 6 golden paths under `tests/e2e/golden-paths.spec.ts`.
+- [ ] Add inline rate-limits to the ~40 routes that lack them (Phase 1 sub-agent dispatch when capacity returns).
+- [ ] WebGL fallback path on `/app/mindmap` and `/app/fingerprint` (MOBILE flag).
+- [ ] Phase 1 routes that need API-shaped tests under `tests/api/` (deliverable when Postgres test container helper lands).
 - [ ] `RUNBOOK.md`, `CHANGELOG.md`, `TESTING_STRATEGY.md`, `docs/PLUGIN_MATURITY_MATRIX.md`.
 
 **Blocked on owner action (see §8):**
