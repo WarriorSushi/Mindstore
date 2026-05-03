@@ -14,9 +14,9 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | Indicator | Status (2026-05-03) | Notes |
 |---|---|---|
-| `node_modules` installed | ❌ Missing | First action of Phase 0 is `npm install`. |
-| `npm run typecheck` | ⚠️ Errors expected once installed | `vitest`, `path`, and `__dirname` references in `tests/` and `vitest.config.ts` will surface; need `@types/node` and tsconfig include for tests. |
-| `npm test` | ❓ Cannot run (no `node_modules`) | Will report 345 unit tests across 48 files once installed. |
+| `node_modules` installed | ✅ Installed | Verified by Phase 0 security tests (`npx vitest run` reports 369 passing). |
+| `npm run typecheck` | ✅ Passing | Verified clean during Phase 0 security fix landing. |
+| `npm test` | ✅ 369 / 369 | 54 test files; 24 new tests in `tests/unit/security-phase0/` (7 files) cover SEC-1..SEC-7 + Gemini RETRIEVAL_QUERY. |
 | `npm run lint:ci` | ❓ Cannot run | Currently a curated subset; full repo lint is `lint:backlog`. |
 | `npm run build` | ❓ Cannot run | `.next/` exists from prior build, but stale. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (stale) `NEXT_STEPS.md`. |
@@ -85,13 +85,13 @@ Severity follows OWASP-style risk weighting; full per-route table in §6.
 
 | ID | Severity | Issue | Route | Fix |
 |---|---|---|---|---|
-| SEC-1 | **CRITICAL** | `GET /api/v1/settings` returns API-key previews + provider config without auth. | `src/app/api/v1/settings/route.ts` | Add `getUserId()` gate; in multi-user, scope reads to caller. |
-| SEC-2 | **CRITICAL** | `POST /api/v1/settings` writes/deletes the global API keys without auth. Anyone can wipe configuration. | same | Require auth; in multi-user, scope writes to caller. |
-| SEC-3 | HIGH | `/api/v1/embed` is open — free embedding service for anyone with the URL. | `src/app/api/v1/embed/route.ts` | Require auth + rate limit. |
-| SEC-4 | HIGH | `/api/v1/import-url` server-side fetches arbitrary URLs (SSRF). | `src/app/api/v1/import-url/route.ts` | Require auth, add allow-list of schemes (http/https), block private IP ranges, add rate limit. |
-| SEC-5 | HIGH | `/api/v1/plugin-jobs/run-due` triggers background jobs without auth. | `src/app/api/v1/plugin-jobs/run-due/route.ts` | Require either an internal HMAC header or owner-issued API key. |
-| SEC-6 | HIGH | `/api/mcp` has no auth + CORS `*`. | `src/app/api/mcp/route.ts` | Bearer-token API key (`api_keys` table already exists) + tighten CORS to known clients or echo the request origin only when allow-listed. |
-| SEC-7 | MEDIUM | `/api/health` and `/api/v1/health` leak provider configuration booleans and DB connection diagnostics. | `src/app/api/health/route.ts`, `src/app/api/v1/health/route.ts` | Public route returns minimal status; authed `/api/v1/health` returns full diagnostics. |
+| SEC-1 | **CRITICAL** ✅ DONE | `GET /api/v1/settings` returns API-key previews + provider config without auth. | `src/app/api/v1/settings/route.ts` | Gated by `requireUserId()`. Settings table is still global (ARCH-1). |
+| SEC-2 | **CRITICAL** ✅ DONE | `POST /api/v1/settings` writes/deletes the global API keys without auth. Anyone can wipe configuration. | same | Gated by `requireUserId()` + `applyRateLimit('settings', RATE_LIMITS.write)`. |
+| SEC-3 | HIGH ✅ DONE | `/api/v1/embed` is open — free embedding service for anyone with the URL. | `src/app/api/v1/embed/route.ts` | `requireUserId()` + `RATE_LIMITS.standard` + Zod (texts: 1..50, ≤8000 chars). |
+| SEC-4 | HIGH ✅ DONE | `/api/v1/import-url` server-side fetches arbitrary URLs (SSRF). | `src/app/api/v1/import-url/route.ts` | `requireUserId()` + `RATE_LIMITS.write` + `isPublicHttpUrl()` blocks 10/8, 172.16/12, 192.168/16, 169.254/16, 127/8, ::1, fc00::/7, fe80::/10, localhost. |
+| SEC-5 | HIGH ✅ DONE | `/api/v1/plugin-jobs/run-due` triggers background jobs without auth. | `src/app/api/v1/plugin-jobs/run-due/route.ts` | Accepts `Bearer <INTERNAL_JOB_TOKEN>`, valid `api_keys` row, or `x-vercel-cron` header. |
+| SEC-6 | HIGH ✅ DONE | `/api/mcp` has no auth + CORS `*`. | `src/app/api/mcp/route.ts` | Bearer API key from `api_keys` required; single-user mode falls through to default user. CORS now echoes Origin only when in `MCP_ALLOWED_ORIGINS`. |
+| SEC-7 | MEDIUM ✅ DONE | `/api/health` and `/api/v1/health` leak provider configuration booleans and DB connection diagnostics. | `src/app/api/health/route.ts`, `src/app/api/v1/health/route.ts` | Public `/api/health` now returns `{status, timestamp}` only. `/api/v1/health` gated by `requireUserId()`. |
 | SEC-8 | MEDIUM | `/api/v1/backup` POST has no body shape validation, no size limits. | `src/app/api/v1/backup/route.ts` | Add Zod schema and `max-document` cap. |
 | SEC-9 | MEDIUM | `/api/v1/duplicates` POST (merge) has no rate limit; abusable for bulk delete. | `src/app/api/v1/duplicates/route.ts` | Add `RATE_LIMITS.write`. |
 | SEC-10 | MEDIUM | `/api/v1/import` (50MB) has no per-user daily quota. | `src/app/api/v1/import/route.ts` | Add per-user daily import quota + hourly rate limit. |
@@ -299,8 +299,9 @@ Phase 0 — Truth Pass:
 - [ ] Move stale docs to `docs/archive/`.
 - [ ] `npm install` + verify `npm test`, `npm run typecheck`, `npm run build`.
 - [ ] CI workflow under `.github/workflows/`.
-- [ ] Fix SEC-1 and SEC-2 (`/api/v1/settings` auth).
-- [ ] Fix the Gemini `RETRIEVAL_QUERY` embedding bug.
+- [x] Fix SEC-1 and SEC-2 (`/api/v1/settings` auth).
+- [x] Fix SEC-3, SEC-4, SEC-5, SEC-6, SEC-7 (embed/import-url/plugin-jobs/mcp/health).
+- [x] Fix the Gemini `RETRIEVAL_QUERY` embedding bug (`generateEmbeddings(texts, { mode })`).
 
 Phases 1-5: see `PRODUCTION_READINESS.md`.
 

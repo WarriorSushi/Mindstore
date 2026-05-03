@@ -1,31 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { isPublicHttpUrl, parseJsonBody, requireUserId } from '@/server/api-validation';
+
+const ImportUrlSchema = z.object({
+  url: z.string().min(1),
+});
 
 /**
  * POST /api/v1/import-url — extract text from a URL server-side
  * Body: { url: string }
  * Returns: { title, content, url }
- * 
+ *
  * This replaces the client-side CORS proxy approach (allorigins.win)
  * which was fragile and leaked user URLs to a third party.
  */
 export async function POST(req: NextRequest) {
-  try {
-    const { url } = await req.json();
-    
-    if (!url || typeof url !== 'string') {
-      return NextResponse.json({ error: 'URL required' }, { status: 400 });
-    }
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
 
-    // Basic URL validation
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return NextResponse.json({ error: 'Only http/https URLs supported' }, { status: 400 });
-      }
-    } catch {
-      return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
-    }
+  const limited = applyRateLimit(req, 'import-url', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, ImportUrlSchema);
+  if (body instanceof NextResponse) return body;
+
+  // SSRF guard — only http(s), block private/loopback ranges.
+  const guard = isPublicHttpUrl(body.url);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { error: 'URL is not allowed (private/loopback/non-http)' },
+      { status: 400 },
+    );
+  }
+  const parsed = guard.url;
+  const url = parsed.href;
+
+  try {
 
     // Fetch the page server-side (no CORS issues)
     const res = await fetch(url, {

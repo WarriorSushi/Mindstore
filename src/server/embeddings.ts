@@ -71,16 +71,33 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig | null> {
   return null;
 }
 
-// Generate embeddings using the configured provider
-export async function generateEmbeddings(texts: string[]): Promise<number[][] | null> {
+/**
+ * Generate embeddings using the configured provider.
+ *
+ * `mode` controls Gemini's `taskType` — "document" (default) tags the input
+ * as `RETRIEVAL_DOCUMENT` for ingestion-side embedding, "query" tags it as
+ * `RETRIEVAL_QUERY` for search-side. Tagging the wrong side measurably
+ * degrades Gemini retrieval quality.
+ *
+ * OpenAI and Ollama don't expose a task-type knob, so the parameter is a
+ * no-op for those providers.
+ */
+export type EmbeddingMode = 'document' | 'query';
+
+export async function generateEmbeddings(
+  texts: string[],
+  options?: { mode?: EmbeddingMode },
+): Promise<number[][] | null> {
   const config = await getEmbeddingConfig();
   if (!config) return null;
+
+  const mode: EmbeddingMode = options?.mode ?? 'document';
 
   switch (config.provider) {
     case 'openai':
       return generateOpenAIEmbeddings(texts, config.apiKey!, config.model!);
     case 'gemini':
-      return generateGeminiEmbeddings(texts, config.apiKey!, config.model!);
+      return generateGeminiEmbeddings(texts, config.apiKey!, config.model!, mode);
     case 'ollama':
       return generateOllamaEmbeddings(texts, config.baseUrl!, config.model!);
     default:
@@ -117,17 +134,23 @@ async function generateOpenAIEmbeddings(texts: string[], apiKey: string, model: 
 }
 
 // Gemini embeddings (free tier: 1500 RPD)
-async function generateGeminiEmbeddings(texts: string[], apiKey: string, model: string): Promise<number[][]> {
+async function generateGeminiEmbeddings(
+  texts: string[],
+  apiKey: string,
+  model: string,
+  mode: EmbeddingMode,
+): Promise<number[][]> {
   const allEmbeddings: number[][] = [];
+  const taskType = mode === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
 
   // Gemini batch embed endpoint
   for (let i = 0; i < texts.length; i += 100) {
     const batch = texts.slice(i, i + 100);
-    
+
     const requests = batch.map(text => ({
       model: `models/${model}`,
       content: { parts: [{ text }] },
-      taskType: "RETRIEVAL_DOCUMENT",
+      taskType,
     }));
 
     const res = await fetch(

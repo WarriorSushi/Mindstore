@@ -333,7 +333,8 @@ async function toolSearchMind(args: { query: string; limit?: number; source?: st
 
   let embedding: number[] | null = null;
   try {
-    const embeddings = await generateEmbeddings([args.query]);
+    // Search-side embedding — Gemini needs RETRIEVAL_QUERY tagging.
+    const embeddings = await generateEmbeddings([args.query], { mode: 'query' });
     if (embeddings && embeddings.length > 0) {
       embedding = embeddings[0];
     }

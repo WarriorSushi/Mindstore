@@ -1,19 +1,23 @@
-import { getUserId } from '@/server/user';
 import { NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
 import { getIdentityMode, isSingleUserModeEnabled } from '@/server/identity';
 import { getDatabaseConnectionDiagnostics } from '@/server/postgres-client';
+import { requireUserId } from '@/server/api-validation';
 
 /**
  * GET /api/v1/health
- * 
- * System health dashboard — DB stats, embedding coverage,
- * storage breakdown, connection status, and performance metrics.
+ *
+ * Authenticated system health dashboard — DB stats, embedding coverage,
+ * storage breakdown, connection status, and performance metrics. Public
+ * `/api/health` returns a minimal status only; this endpoint exposes the
+ * full diagnostics surface and therefore requires auth.
  */
 export async function GET() {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
   try {
-    const userId = await getUserId();
     const dbDiagnostics = getDatabaseConnectionDiagnostics(process.env.DATABASE_URL);
 
     // Run all checks in parallel

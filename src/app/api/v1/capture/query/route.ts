@@ -26,7 +26,8 @@ async function handleQuery(rawQuery: unknown, rawLimit: unknown) {
     let queryEmbedding: number[] | null = null;
 
     try {
-      const embeddings = await generateEmbeddings([query]);
+      // Search-side embedding — Gemini needs RETRIEVAL_QUERY tagging.
+      const embeddings = await generateEmbeddings([query], { mode: 'query' });
       queryEmbedding = embeddings && embeddings.length > 0 ? embeddings[0] : null;
     } catch {
       queryEmbedding = null;

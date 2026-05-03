@@ -33,10 +33,11 @@ export async function GET(req: NextRequest) {
     // Process query for better retrieval (abbreviation expansion, stop word removal)
     const processed = processQuery(query);
 
-    // Get embedding for the expanded query using available provider
+    // Get embedding for the expanded query using available provider.
+    // Search-side embedding — Gemini needs RETRIEVAL_QUERY tagging.
     let embedding: number[] | null = null;
     try {
-      const embeddings = await generateEmbeddings([processed.expanded || query]);
+      const embeddings = await generateEmbeddings([processed.expanded || query], { mode: 'query' });
       if (embeddings && embeddings.length > 0) {
         embedding = embeddings[0];
       }

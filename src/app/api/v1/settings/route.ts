@@ -10,6 +10,13 @@ import {
 } from '@/server/runtime-requirements';
 import { getIdentityMode, isGoogleAuthConfigured, isSingleUserModeEnabled } from '@/server/identity';
 import { getDatabaseConnectionDiagnostics } from '@/server/postgres-client';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
+
+// Note: the `settings` table is currently global (no user_id column) — see
+// STATUS.md ARCH-1. Phase 0 only gates the auth boundary; the per-user
+// scoping migration is scheduled for Phase 1. Until then ALL authenticated
+// users share the same settings rows.
 
 interface SettingRow {
   key: string;
@@ -20,6 +27,9 @@ interface SettingRow {
  * GET /api/v1/settings — get current settings
  */
 export async function GET() {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const settings = await db.execute(
       sql`SELECT key, value FROM settings WHERE key IN (
@@ -113,6 +123,12 @@ export async function GET() {
  * POST /api/v1/settings — store settings
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+
+  const limited = applyRateLimit(req, 'settings', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
 
