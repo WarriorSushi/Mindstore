@@ -6,9 +6,9 @@ import { PLUGIN_MANIFESTS } from "./registry";
 const WRITING_STYLE_WIDGET_ID = "writing-style-overview";
 
 const BUILTIN_OVERRIDES = {
-  "writing-style": definePlugin({
+  "writing-analyzer": definePlugin({
     source: "builtin",
-    manifest: PLUGIN_MANIFESTS["writing-style"],
+    manifest: PLUGIN_MANIFESTS["writing-analyzer"],
     dashboard: {
       widgets: [
         {

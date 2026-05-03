@@ -22,18 +22,18 @@ export * as VoiceToMemory from './voice-to-memory';
 export * as PocketImporter from './pocket-importer';
 export * as SpotifyImporter from './spotify-importer';
 export * as BrowserBookmarks from './browser-bookmarks';
-export * as RedditSaved from './reddit-saved';
+export * as RedditSaved from './reddit-importer';
 export * as TwitterImporter from './twitter-importer';
 export * as TelegramImporter from './telegram-importer';
 export * as ReadwiseImporter from './readwise-importer';
-export * as YouTubeTranscript from './youtube-transcript';
+export * as YouTubeTranscript from './youtube-importer';
 
 // Document parsing
 export * as PdfEpubParser from './pdf-epub-parser';
 
 // Analysis plugins
 export * as ContradictionFinder from './contradiction-finder';
-export * as WritingStyle from './writing-style';
+export * as WritingStyle from './writing-analyzer';
 export * as TopicEvolution from './topic-evolution';
 export * as SentimentTimeline from './sentiment-timeline';
 export * as KnowledgeGaps from './knowledge-gaps';

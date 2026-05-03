@@ -1,13 +1,42 @@
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { PLUGIN_MANIFESTS } from "@/server/plugins/registry";
 
+/**
+ * Resolve a slug — including legacy aliases — to the canonical manifest slug.
+ * Returns the input slug unchanged if no alias is found (caller decides
+ * whether that is an error). See STATUS.md ARCH-12.
+ */
+export function resolveCanonicalSlug(slug: string): string {
+  if (PLUGIN_MANIFESTS[slug]) return slug;
+  for (const manifest of Object.values(PLUGIN_MANIFESTS)) {
+    if (manifest.aliases?.includes(slug)) {
+      return manifest.slug;
+    }
+  }
+  return slug;
+}
+
+/**
+ * Build the candidate slug list for a DB lookup: the canonical slug plus any
+ * declared aliases. Lets the DB lookup match rows that were inserted under a
+ * legacy slug (pre-rename) without requiring a data migration.
+ */
+function candidateSlugs(slug: string): string[] {
+  const canonical = resolveCanonicalSlug(slug);
+  const manifest = PLUGIN_MANIFESTS[canonical];
+  const aliases = manifest?.aliases ?? [];
+  return Array.from(new Set([canonical, slug, ...aliases]));
+}
+
 export async function ensurePluginInstalled(slug: string) {
-  const manifest = PLUGIN_MANIFESTS[slug];
+  const canonical = resolveCanonicalSlug(slug);
+  const manifest = PLUGIN_MANIFESTS[canonical];
+  const slugs = candidateSlugs(slug);
   const [existing] = await db
     .select()
     .from(schema.plugins)
-    .where(eq(schema.plugins.slug, slug))
+    .where(inArray(schema.plugins.slug, slugs))
     .limit(1);
 
   if (existing || !manifest) {
@@ -47,7 +76,7 @@ export async function assertPluginEnabled(slug: string) {
       status: schema.plugins.status,
     })
     .from(schema.plugins)
-    .where(eq(schema.plugins.slug, slug))
+    .where(inArray(schema.plugins.slug, candidateSlugs(slug)))
     .limit(1);
 
   if (!plugin) {
@@ -65,7 +94,7 @@ export async function getPluginConfig<T extends object>(slug: string, fallback: 
   const [row] = await db
     .select({ config: schema.plugins.config })
     .from(schema.plugins)
-    .where(eq(schema.plugins.slug, slug))
+    .where(inArray(schema.plugins.slug, candidateSlugs(slug)))
     .limit(1);
 
   if (!row?.config || typeof row.config !== "object" || Array.isArray(row.config)) {
@@ -85,7 +114,7 @@ export async function savePluginConfig<T extends object>(slug: string, config: T
       config,
       updatedAt: new Date(),
     })
-    .where(eq(schema.plugins.slug, slug));
+    .where(inArray(schema.plugins.slug, candidateSlugs(slug)));
 }
 
 export async function updatePluginConfig<T extends object>(

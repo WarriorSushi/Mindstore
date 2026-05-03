@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/server/user";
-import { importYouTubeTranscript, previewYouTubeTranscript } from "@/server/plugins/ports/youtube-transcript";
+import { importYouTubeTranscript, previewYouTubeTranscript } from "@/server/plugins/ports/youtube-importer";
 
 export async function POST(req: NextRequest) {
   try {

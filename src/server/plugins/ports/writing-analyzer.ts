@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/server/db";
 import { PLUGIN_MANIFESTS } from "@/server/plugins/registry";
 
-const PLUGIN_SLUG = "writing-style";
+const PLUGIN_SLUG = "writing-analyzer";
 
 const STOPWORDS = new Set([
   "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of",

@@ -4,7 +4,7 @@ import {
   chunkTranscript,
   extractVideoId,
   normalizeSegments,
-} from "@/server/plugins/ports/youtube-transcript";
+} from "@/server/plugins/ports/youtube-importer";
 
 describe("youtube transcript port", () => {
   it("extracts a video id from common YouTube URLs", () => {

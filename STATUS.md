@@ -77,7 +77,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-9 | Embedding-dim mismatch handled defensively in retrieval (`vector_dims(m.embedding) = ${embDim}`) but no migration path when a user changes provider. | Medium | Add a "re-embed all" job; surface in settings when provider changes. |
 | ARCH-10 | Two near-duplicate routes: `/api/v1/stats` and `/api/v1/knowledge-stats`. | Low (per "additive only" rule, mark redundant — `knowledge-stats` subsumes `stats`) | Phase 0 cleanup: keep `knowledge-stats`, redirect `stats` callers, then deprecate `stats`. |
 | ARCH-11 | ~~`src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist.~~ | ✅ DONE (Phase 1) | Legacy `apikey.ts` was unreferenced; deleted. `api-keys.ts` remains the single active validator. |
-| ARCH-12 | Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`. Functional today, but a maintenance hazard. | Low | Phase 1: rename file → match registry, register old slug as alias for back-compat. |
+| ARCH-12 | ~~Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`.~~ | ✅ DONE (Phase 1) | Port files renamed to match registry slugs. Old slugs registered as `aliases` so the runtime + DB lookups still resolve them. API route URLs (`/api/v1/plugins/youtube-transcript` etc.) preserved for back-compat with external clients. Also fixed two latent bugs the rename surfaced: a typo in `BUILTIN_OVERRIDES` key (`writing-style` → `writing-analyzer`) that had silently disabled the writing-analyzer dashboard widget, and a missing `ui.dashboardWidgets` manifest entry. |
 | ARCH-13 | `npm install` reports 15 advisories (9 moderate, 6 high). | Medium | Phase 1: run `npm audit fix`; defer `--force`/breaking upgrades to a dedicated PR with owner sign-off. |
 | ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | Phase 1: add fetch-time IP check via `dns.lookup` + custom agent that re-validates the resolved IP before connecting. Surface for any new SSRF-prone routes too. |
 
@@ -113,11 +113,11 @@ All 35 are functional. **Maturity** here is a composite of code completeness and
 |---|---|---|---|---|---|---|
 | kindle-importer | import | kindle-importer.ts | 402 | 3 | WORKS | Add malformed-file + dedup tests. |
 | pdf-epub-parser | import | pdf-epub-parser.ts | 407 | 3 | WORKS | Add unicode + section-edge cases. |
-| youtube-importer | import | youtube-transcript.ts ⚠️ | 415 | 3 | WORKS | **Slug mismatch** registry≠file. |
+| youtube-importer | import | youtube-importer.ts | 415 | 3 | WORKS | Renamed to match registry (Phase 1 ARCH-12). Alias `youtube-transcript` retained for back-compat. |
 | browser-bookmarks | import | browser-bookmarks.ts | 264 | 3 | WORKS | Folder-hierarchy + invalid-URL filtering tests. |
 | obsidian-importer | import | obsidian-importer.ts | 571 | 24 | PRODUCTION | Highest test count in project. |
 | notion-importer | import | notion-importer.ts | 318 | 3 | WORKS | ZIP + CSV edge cases. |
-| reddit-importer | import | reddit-saved.ts ⚠️ | 419 | 3 | WORKS | **Slug mismatch.** |
+| reddit-importer | import | reddit-importer.ts | 419 | 3 | WORKS | Renamed to match registry (Phase 1 ARCH-12). Alias `reddit-saved` retained for back-compat. |
 | twitter-importer | import | twitter-importer.ts | 328 | 16 | PRODUCTION | |
 | telegram-importer | import | telegram-importer.ts | 341 | 6 | PRODUCTION | |
 | pocket-importer | import | pocket-importer.ts | 259 | 17 | PRODUCTION | |
@@ -127,7 +127,7 @@ All 35 are functional. **Maturity** here is a composite of code completeness and
 | knowledge-gaps | analysis | knowledge-gaps.ts | 431 | 3 | WORKS | Gap-identification + recommendation-rank tests. |
 | contradiction-finder | analysis | contradiction-finder.ts | 441 | 2 | WORKS | Background-only (no UI page by design); needs partial-contradiction tests. |
 | topic-evolution | analysis | topic-evolution.ts | 460 | 2 | WORKS | Timeline + date-edge tests. |
-| writing-analyzer | analysis | writing-style.ts ⚠️ | 848 | varies | PRODUCTION | **Slug mismatch.** Largest port file. |
+| writing-analyzer | analysis | writing-analyzer.ts | 848 | varies | PRODUCTION | Renamed to match registry (Phase 1 ARCH-12). Alias `writing-style` retained for back-compat. Largest port file. |
 | sentiment-timeline | analysis | sentiment-timeline.ts | 637 | 3 | WORKS | Emotion-detection + temporal-aggregation tests. |
 | blog-draft | action | blog-draft.ts | 404 | varies | PRODUCTION | |
 | flashcard-maker | action | flashcard-maker.ts | 538 | 3 | PRODUCTION | SM-2 implementation; needs more interval-edge tests. |
@@ -316,7 +316,7 @@ Only the owner can resolve these. Each is named so I can reference it in subsequ
 Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 
 - [x] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (legacy file deleted; only `api-keys.ts` is referenced).
-- [ ] ARCH-12: rename plugin port files to match registry slugs + alias map.
+- [x] ARCH-12: rename plugin port files to match registry slugs + alias map.
 - [ ] ARCH-14: add fetch-time DNS-resolved IP check to `isPublicHttpUrl()`.
 - [ ] ARCH-13: run `npm audit fix` (non-breaking only); breaking upgrades in a separate owner-approved PR.
 - [ ] ARCH-10: deprecate `/api/v1/stats` in favor of `/api/v1/knowledge-stats`; redirect callers.

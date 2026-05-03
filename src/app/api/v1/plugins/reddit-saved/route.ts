@@ -11,7 +11,7 @@ import {
   parseRedditJSON,
   parseReferenceCSV,
   type RedditPost,
-} from "@/server/plugins/ports/reddit-saved";
+} from "@/server/plugins/ports/reddit-importer";
 
 async function processZipExport(buffer: ArrayBuffer): Promise<{ posts: RedditPost[]; comments: RedditPost[] }> {
   const zip = await JSZip.loadAsync(buffer);

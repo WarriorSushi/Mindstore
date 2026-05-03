@@ -4,7 +4,7 @@ import {
   classifyTone,
   computeComplexityScore,
   countSyllables,
-} from "@/server/plugins/ports/writing-style";
+} from "@/server/plugins/ports/writing-analyzer";
 
 describe("writing style port", () => {
   it("computes readability and structural metrics", () => {

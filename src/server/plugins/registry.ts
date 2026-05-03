@@ -63,6 +63,7 @@ export const PLUGIN_MANIFESTS: Record<string, PluginManifest> = {
 
   'youtube-importer': {
     slug: 'youtube-importer',
+    aliases: ['youtube-transcript'],
     name: 'YouTube Transcripts',
     description: 'Import transcripts from YouTube videos. Paste a URL and get the full transcript.',
     version: '1.0.0',
@@ -123,6 +124,7 @@ export const PLUGIN_MANIFESTS: Record<string, PluginManifest> = {
 
   'reddit-importer': {
     slug: 'reddit-importer',
+    aliases: ['reddit-saved'],
     name: 'Reddit Saved Posts',
     description: 'Import your saved posts and comments from Reddit\'s data export.',
     version: '1.0.0',
@@ -288,6 +290,7 @@ export const PLUGIN_MANIFESTS: Record<string, PluginManifest> = {
 
   'writing-analyzer': {
     slug: 'writing-analyzer',
+    aliases: ['writing-style'],
     name: 'Writing Style Analyzer',
     description: 'Analyze your writing style — vocabulary, tone, complexity, and patterns.',
     version: '1.0.0',
@@ -297,6 +300,18 @@ export const PLUGIN_MANIFESTS: Record<string, PluginManifest> = {
     author: 'MindStore',
     capabilities: ['read:memories', 'ui:widgets'],
     hooks: ['onInstall', 'onUninstall'],
+    ui: {
+      dashboardWidgets: [
+        {
+          id: 'writing-style-overview',
+          title: 'Writing Style Overview',
+          description: 'Snapshot of your written-memory volume, recency, and dominant source.',
+          size: 'medium',
+          priority: 50,
+          emptyState: 'Import or write a few memories to generate your first writing profile.',
+        },
+      ],
+    },
   },
 
   'sentiment-timeline': {

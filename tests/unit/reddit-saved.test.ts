@@ -5,7 +5,7 @@ import {
   extractPostsFromCSV,
   formatRedditContent,
   parseRedditJSON,
-} from "@/server/plugins/ports/reddit-saved";
+} from "@/server/plugins/ports/reddit-importer";
 
 describe("reddit saved port", () => {
   it("extracts reddit posts from csv", () => {

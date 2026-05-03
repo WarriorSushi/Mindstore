@@ -5,7 +5,7 @@ import {
   getWritingStyleProfile,
   getWritingStyleResults,
   runWritingStyleAnalysis,
-} from "@/server/plugins/ports/writing-style";
+} from "@/server/plugins/ports/writing-analyzer";
 
 export async function GET(req: NextRequest) {
   try {

@@ -1,7 +1,7 @@
 import { importDocuments } from "@/server/import-service";
 import { assertPluginEnabled } from "@/server/plugins/ports/plugin-config";
 
-const PLUGIN_SLUG = "reddit-saved";
+const PLUGIN_SLUG = "reddit-importer";
 const MAX_IMPORT_CHUNKS = 500;
 
 export interface RedditPost {

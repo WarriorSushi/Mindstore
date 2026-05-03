@@ -1,7 +1,7 @@
 import { importDocuments } from "@/server/import-service";
 import { assertPluginEnabled } from "@/server/plugins/ports/plugin-config";
 
-const PLUGIN_SLUG = "youtube-transcript";
+const PLUGIN_SLUG = "youtube-importer";
 
 export interface TranscriptSegment {
   text: string;
