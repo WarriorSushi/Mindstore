@@ -390,3 +390,25 @@ export const indexingJobs = pgTable('indexing_jobs', {
   index('idx_indexing_jobs_status').on(table.status, table.scheduledAt),
   index('idx_indexing_jobs_user_type').on(table.userId, table.jobType, table.status),
 ]);
+
+// === PHASE 2 INNOVATION: KNOWLEDGE METABOLISM SCORE ===
+// Tracks weekly intellectual fitness as a 0-10 score plus four components.
+// Per FEATURE_BACKLOG.md A.9. Computed via src/server/metabolism/calc.ts.
+
+export const metabolismScores = pgTable('metabolism_scores', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  weekStart: timestamp('week_start').notNull(), // Sunday 00:00 UTC of the week
+  score: real('score').notNull(), // overall 0-10 weighted average
+  intakeRate: real('intake_rate').notNull(), // memories added vs trailing average
+  connectionDensity: real('connection_density').notNull(), // connections per memory
+  retrievalFrequency: real('retrieval_frequency').notNull(), // searches+chats per day
+  growthVelocity: real('growth_velocity').notNull(), // week-over-week delta
+  memoriesAdded: integer('memories_added').default(0).notNull(),
+  searchesPerformed: integer('searches_performed').default(0).notNull(),
+  chatsPerformed: integer('chats_performed').default(0).notNull(),
+  computedAt: timestamp('computed_at').defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('idx_metabolism_user_week').on(table.userId, table.weekStart),
+  index('idx_metabolism_user').on(table.userId, table.weekStart),
+]);

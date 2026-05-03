@@ -511,9 +511,29 @@ async function migrate() {
     )
   `);
 
+  // Phase 2 (Knowledge Metabolism Score, A.9) — weekly intellectual-fitness score
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS metabolism_scores (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) NOT NULL,
+      week_start TIMESTAMPTZ NOT NULL,
+      score REAL NOT NULL,
+      intake_rate REAL NOT NULL,
+      connection_density REAL NOT NULL,
+      retrieval_frequency REAL NOT NULL,
+      growth_velocity REAL NOT NULL,
+      memories_added INTEGER NOT NULL DEFAULT 0,
+      searches_performed INTEGER NOT NULL DEFAULT 0,
+      chats_performed INTEGER NOT NULL DEFAULT 0,
+      computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_metabolism_user_week ON metabolism_scores(user_id, week_start)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_metabolism_user ON metabolism_scores(user_id, week_start DESC)`);
+
   // Create default user
   await db.execute(sql`
-    INSERT INTO users (id, email, name) 
+    INSERT INTO users (id, email, name)
     VALUES (${DEFAULT_USER_ID}::uuid, ${DEFAULT_USER_EMAIL}, ${DEFAULT_USER_NAME})
     ON CONFLICT (email) DO NOTHING
   `);
