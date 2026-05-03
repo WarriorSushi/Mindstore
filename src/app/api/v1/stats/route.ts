@@ -3,6 +3,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
 
+/**
+ * Phase 1 (ARCH-10): this endpoint is **deprecated**. New callers should
+ * hit `/api/v1/knowledge-stats` and project the legacy shape with
+ * `@/lib/stats-adapter#toLegacyStats`. This route stays alive (responds
+ * with the same payload it has always returned) until **2026-08-01**.
+ *
+ * Every response carries:
+ *   - `Deprecation: true`
+ *   - `Sunset: <RFC 8594 date>`
+ *   - `Link: </api/v1/knowledge-stats>; rel="successor-version"`
+ * so caches and clients can pick up the migration automatically.
+ *
+ * The deprecation also surfaces as a `console.warn` (per request) so any
+ * remaining caller is visible in logs.
+ */
+const STATS_SUNSET_DATE = '2026-08-01';
+
 /** Build a 14-day array of { day: 'YYYY-MM-DD', count: number } filling in zeros for missing days */
 function buildDailyActivity(rows: Array<{ day: string; count: number }>): Array<{ day: string; count: number }> {
   const map = new Map<string, number>();
@@ -22,7 +39,16 @@ function buildDailyActivity(rows: Array<{ day: string; count: number }>): Array<
   return result;
 }
 
+function deprecationHeaders(): HeadersInit {
+  return {
+    'Deprecation': 'true',
+    'Sunset': new Date(`${STATS_SUNSET_DATE}T00:00:00Z`).toUTCString(),
+    'Link': '</api/v1/knowledge-stats>; rel="successor-version"',
+  };
+}
+
 export async function GET(req: NextRequest) {
+  console.warn('[deprecated] /api/v1/stats called; migrate to /api/v1/knowledge-stats (sunset 2026-08-01)');
   try {
     const userId = await getUserId();
 
@@ -102,7 +128,7 @@ export async function GET(req: NextRequest) {
       })),
       pinnedCount: (pinnedMemories as any[]).length,
       dailyActivity: buildDailyActivity(dailyActivity as any[]),
-    });
+    }, { headers: deprecationHeaders() });
   } catch (error: unknown) {
     console.error('[stats]', error);
     // Return empty stats when DB is unavailable — don't crash the frontend
@@ -112,6 +138,6 @@ export async function GET(req: NextRequest) {
       byType: { chatgpt: 0, text: 0, file: 0, url: 0 },
       topSources: [],
       dbError: true,
-    });
+    }, { headers: deprecationHeaders() });
   }
 }

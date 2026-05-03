@@ -3,9 +3,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
 
+/** Build a 14-day array of { day: 'YYYY-MM-DD', count: number } filling in zeros for missing days */
+function buildDailyActivity(rows: Array<{ day: string | Date; count: number }>): Array<{ day: string; count: number }> {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const d = new Date(r.day as string).toISOString().slice(0, 10);
+    map.set(d, r.count);
+  }
+  const result: Array<{ day: string; count: number }> = [];
+  const now = new Date();
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    result.push({ day: key, count: map.get(key) || 0 });
+  }
+  return result;
+}
+
 /**
  * GET /api/v1/knowledge-stats
- * Comprehensive knowledge base analytics for the Stats page
+ * Comprehensive knowledge base analytics for the Stats page.
+ *
+ * As of Phase 1 (ARCH-10) this endpoint is a strict superset of the
+ * deprecated `/api/v1/stats`: it carries all of the legacy fields
+ * (`totalMemories`, `totalSources`, `byType`, `dailyActivity`,
+ * `recentMemories`, `pinnedMemories`, `pinnedCount`, plus the
+ * legacy-shape `topSourcesLegacy`) alongside the richer analytics
+ * shape that the Stats page already consumed (`topSources` retains its
+ * `{type,title,count}` shape). Callers should use
+ * `@/lib/stats-adapter` for the legacy `/api/v1/stats` shape.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -22,6 +49,9 @@ export async function GET(req: NextRequest) {
       topSources,
       weeklyActivity,
       contentDepth,
+      dailyActivity,
+      recentMemories,
+      pinnedMemories,
     ] = await Promise.all([
       // Total memory count
       db.execute(sql`SELECT COUNT(*)::int as count FROM memories WHERE user_id = ${userId}::uuid`),
@@ -107,6 +137,36 @@ export async function GET(req: NextRequest) {
         FROM memories WHERE user_id = ${userId}::uuid
         GROUP BY depth
       `),
+
+      // Legacy-shape fields (preserved for /api/v1/stats parity — ARCH-10).
+
+      // Daily activity — last 14 days of import counts by day
+      db.execute(sql`
+        SELECT
+          date_trunc('day', created_at)::date AS day,
+          COUNT(*)::int AS count
+        FROM memories
+        WHERE user_id = ${userId}::uuid
+          AND created_at >= NOW() - INTERVAL '14 days'
+        GROUP BY day
+        ORDER BY day ASC
+      `),
+
+      // Recent memories — last 5 added
+      db.execute(sql`
+        SELECT id, content, source_type, source_title, created_at
+        FROM memories WHERE user_id = ${userId}::uuid
+        ORDER BY created_at DESC
+        LIMIT 5
+      `),
+
+      // Pinned memories
+      db.execute(sql`
+        SELECT id, content, source_type, source_title, created_at
+        FROM memories WHERE user_id = ${userId}::uuid AND (metadata->>'pinned')::boolean = true
+        ORDER BY created_at DESC
+        LIMIT 10
+      `),
     ]);
 
     const total = (totalResult as any)[0]?.count || 0;
@@ -154,7 +214,34 @@ export async function GET(req: NextRequest) {
       diversityScore = 0;
     }
 
+    // Legacy-shape projections — preserved for /api/v1/stats parity (ARCH-10).
+    const byType: Record<string, number> = { chatgpt: 0, text: 0, file: 0, url: 0 };
+    for (const row of sourceTypes) {
+      byType[row.type] = row.count;
+    }
+    const legacyTopSources = (topSources as any[]).map((s: any) => ({
+      id: s.title || `${s.type}:${s.title || ''}`,
+      type: s.type,
+      title: s.title || 'Untitled',
+      itemCount: s.count,
+    }));
+    const legacyRecent = (recentMemories as any[]).map((r: any) => ({
+      id: r.id,
+      content: r.content?.slice(0, 120) || '',
+      sourceType: r.source_type,
+      sourceTitle: r.source_title || 'Untitled',
+      createdAt: r.created_at,
+    }));
+    const legacyPinned = (pinnedMemories as any[]).map((r: any) => ({
+      id: r.id,
+      content: r.content?.slice(0, 120) || '',
+      sourceType: r.source_type,
+      sourceTitle: r.source_title || 'Untitled',
+      createdAt: r.created_at,
+    }));
+
     return NextResponse.json({
+      // Canonical knowledge-stats shape
       total,
       sources: sourceTypes.map((s: any) => ({ type: s.type, count: s.count })),
       monthlyGrowth: filledMonths,
@@ -185,6 +272,19 @@ export async function GET(req: NextRequest) {
       })),
       contentDepth: depthMap,
       diversityScore,
+
+      // Legacy /api/v1/stats fields (ARCH-10 — exposed so the deprecated
+      // route can be retired without losing data on the dashboard).
+      // The legacy `topSources` shape lives under `topSourcesLegacy` to
+      // avoid colliding with the canonical knowledge-stats `topSources` key.
+      totalMemories: total,
+      totalSources: legacyTopSources.length,
+      byType,
+      topSourcesLegacy: legacyTopSources,
+      recentMemories: legacyRecent,
+      pinnedMemories: legacyPinned,
+      pinnedCount: legacyPinned.length,
+      dailyActivity: buildDailyActivity(dailyActivity as any[]),
     });
   } catch (error: unknown) {
     console.error('[knowledge-stats]', error);
@@ -199,6 +299,15 @@ export async function GET(req: NextRequest) {
       weeklyActivity: [],
       contentDepth: { brief: 0, medium: 0, detailed: 0, deep: 0, extensive: 0 },
       diversityScore: 0,
+      // Legacy fallback fields
+      totalMemories: 0,
+      totalSources: 0,
+      byType: { chatgpt: 0, text: 0, file: 0, url: 0 },
+      topSourcesLegacy: [],
+      recentMemories: [],
+      pinnedMemories: [],
+      pinnedCount: 0,
+      dailyActivity: buildDailyActivity([]),
       dbError: true,
     });
   }
