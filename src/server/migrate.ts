@@ -511,6 +511,21 @@ async function migrate() {
     )
   `);
 
+  // Phase 3 (Forgetting Curve, A.4) — per-memory forgetting-risk scores.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS memory_forgetting_risk (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) NOT NULL,
+      memory_id UUID REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
+      risk_score REAL NOT NULL,
+      days_since_touch INTEGER NOT NULL,
+      recommendation_priority INTEGER NOT NULL,
+      computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_forgetting_risk_unique ON memory_forgetting_risk(user_id, memory_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_forgetting_risk_user_score ON memory_forgetting_risk(user_id, risk_score DESC)`);
+
   // Phase 2 (Knowledge Fingerprint Snapshots, A.2) — periodic snapshots of
   // the user's knowledge topology so Mind Diff (A.5) can compare two points in time.
   await db.execute(sql`

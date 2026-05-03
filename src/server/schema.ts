@@ -391,6 +391,25 @@ export const indexingJobs = pgTable('indexing_jobs', {
   index('idx_indexing_jobs_user_type').on(table.userId, table.jobType, table.status),
 ]);
 
+// === PHASE 3 INNOVATION A.4: FORGETTING CURVE (WHOLE BASE) ===
+// Per FEATURE_BACKLOG.md A.4. Applies Ebbinghaus's R = e^(-t/S) decay
+// to *every* memory, not just the ones the user made flashcards for.
+// The weekly scorer ranks memories by forgetting risk so the
+// /app/forgetting page can surface them for review.
+
+export const memoryForgettingRisk = pgTable('memory_forgetting_risk', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  riskScore: real('risk_score').notNull(), // 0..1, 1 = about to forget
+  daysSinceTouch: integer('days_since_touch').notNull(),
+  recommendationPriority: integer('recommendation_priority').notNull(), // 1..5
+  computedAt: timestamp('computed_at').defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('idx_forgetting_risk_unique').on(table.userId, table.memoryId),
+  index('idx_forgetting_risk_user_score').on(table.userId, table.riskScore),
+]);
+
 // === PHASE 2 INNOVATION A.2: KNOWLEDGE FINGERPRINT SNAPSHOTS ===
 // Per FEATURE_BACKLOG.md A.2. A weekly snapshot of the user's knowledge
 // topology — memory_count, source_breakdown, cluster_centroids, plus a
