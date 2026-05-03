@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { checkApiKey, streamChat } from "@/lib/openai";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -263,6 +264,28 @@ export default function LearnPage() {
   // TOPIC SELECTION SCREEN
   // ═══════════════════════════════════════════
   if (!selectedTopic) {
+    // Data-zero state: no AI provider configured and nothing learned yet
+    if (!hasApiKey && factsSaved === 0) {
+      return (
+        <div className="space-y-6 md:space-y-8">
+          <div className="space-y-1">
+            <h1 className="text-[22px] md:text-[28px] font-semibold tracking-[-0.03em]">Learn About You</h1>
+            <p className="text-[13px] text-zinc-500">
+              Have a conversation so MindStore can learn who you are
+            </p>
+          </div>
+          <EmptyFeatureState
+            icon={GraduationCap}
+            title="Learn is ready when an AI provider is connected"
+            description="Connect a free Gemini key (or OpenAI / Ollama) in Settings so MindStore can interview you and capture facts about who you are."
+            ctaText="Connect AI provider →"
+            ctaHref="/app/settings"
+            secondaryText="Get a free Gemini key at aistudio.google.com/apikey"
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6 md:space-y-8">
         {/* Header */}

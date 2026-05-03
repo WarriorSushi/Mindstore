@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { usePageTitle } from "@/lib/use-page-title";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -371,6 +372,36 @@ export default function ImageToMemoryPage() {
   }
 
   // ─── Render ─────────────────────────────────────────────────
+
+  // Data-zero: no Vision AI provider AND no images analyzed
+  if (providerAvailable === false && !loading && images.length === 0) {
+    return (
+      <PageTransition>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+          <Stagger>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex-1">
+                <h1 className="text-[22px] sm:text-[28px] font-semibold tracking-[-0.03em] text-white">
+                  Image to Memory
+                </h1>
+                <p className="text-zinc-500 text-[13px] mt-0.5">
+                  Upload images → AI describes → save as searchable knowledge
+                </p>
+              </div>
+            </div>
+          </Stagger>
+          <EmptyFeatureState
+            icon={ImageIcon}
+            title="Vision is ready when an AI provider is connected"
+            description="Add an OpenAI or Gemini API key in Settings so we can analyze images and turn them into searchable memories."
+            ctaText="Connect provider →"
+            ctaHref="/app/settings"
+            secondaryText="Gemini's free tier supports vision out of the box"
+          />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>

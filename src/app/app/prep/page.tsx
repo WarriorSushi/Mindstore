@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -553,15 +554,14 @@ export default function ConversationPrepPage() {
 
         {/* Empty State */}
         {!loading && history.length === 0 && (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-              <Users className="w-7 h-7 text-zinc-600" />
-            </div>
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">No briefings yet</h2>
-            <p className="text-sm text-zinc-500 max-w-sm mx-auto">
-              Before your next meeting, enter who you're meeting or what you're discussing. We'll pull everything you know into a structured briefing.
-            </p>
-          </div>
+          <EmptyFeatureState
+            icon={Users}
+            title="Meeting Prep is ready when your knowledge is"
+            description="Briefings pull from everything you've stored — import notes, contacts, and project context first so we can build a real one-pager."
+            ctaText="Import your first data →"
+            ctaHref="/app/import"
+            secondaryText="Already imported? Use the form above to start a briefing."
+          />
         )}
 
         {/* History */}

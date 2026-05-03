@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePageTitle } from "@/lib/use-page-title";
 import { PageTransition } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -241,6 +242,40 @@ export default function RetrievalPage() {
       <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-teal-400 animate-spin" />
       </div>
+    );
+  }
+
+  // Data-zero: no memories indexed yet — RAG settings are meaningless without data
+  if (stats && stats.totalMemories === 0) {
+    return (
+      <PageTransition>
+        <div className="min-h-screen bg-[#0a0a0b] pb-24">
+          <div className="sticky top-0 z-20 bg-[#0a0a0b]/80 backdrop-blur-xl border-b border-white/[0.06]">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
+              <div className="flex-1">
+                <h1 className="text-[15px] font-semibold text-zinc-100 flex items-center gap-2">
+                  <Cog className="w-4 h-4 text-teal-400" />
+                  Retrieval Strategies
+                </h1>
+                <p className="text-[12px] text-zinc-500 mt-0.5">
+                  Customize how MindStore finds your memories
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+            <EmptyFeatureState
+              icon={Layers}
+              title="Retrieval is ready when your knowledge is"
+              description="Strategy tuning (HyDE, reranking, multi-query) only matters once there's data to search. Import your first memories so the engine has something to retrieve."
+              ctaText="Import your first data →"
+              ctaHref="/app/import"
+              secondaryText="or paste text directly from the home screen"
+              secondaryHref="/app"
+            />
+          </div>
+        </div>
+      </PageTransition>
     );
   }
 

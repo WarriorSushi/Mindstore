@@ -8,6 +8,7 @@ import {
   CheckCircle2, Copy,
 } from "lucide-react";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { usePageTitle } from "@/lib/use-page-title";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -206,21 +207,15 @@ export default function AnkiExportPage() {
 
         {/* ─── No Flashcards State ─────────────────── */}
         {decks.length === 0 || totalCards === 0 ? (
-          <div className="text-center py-16 space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
-              <Layers className="w-8 h-8 text-zinc-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">No Flashcards Yet</h2>
-              <p className="text-zinc-500 mt-1">Create flashcards with the Flashcard Maker plugin first, then export them for Anki.</p>
-            </div>
-            <button
-              onClick={() => router.push('/app/flashcards')}
-              className="px-5 py-2.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-400 hover:bg-teal-500/20 transition-colors text-sm font-medium"
-            >
-              Go to Flashcards →
-            </button>
-          </div>
+          <EmptyFeatureState
+            icon={Layers}
+            title="Anki Export is ready when your decks are"
+            description="Create flashcards with the Flashcard Maker plugin first — once you have at least one deck, this page will export it as an Anki-ready package."
+            ctaText="Go to Flashcards →"
+            ctaHref="/app/flashcards"
+            secondaryText="Need source memories first? Import some data."
+            secondaryHref="/app/import"
+          />
         ) : (
           <>
             {/* ─── Stats Row ──────────────────────── */}

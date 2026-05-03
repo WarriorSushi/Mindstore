@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -961,21 +962,16 @@ export default function BlogPage() {
 
         {/* Empty State */}
         {!loading && drafts.length === 0 && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-              <FileEdit className="w-7 h-7 text-zinc-600" />
-            </div>
-            <h2 className="text-lg font-semibold text-zinc-300 mb-2">No drafts yet</h2>
-            <p className="text-sm text-zinc-500 max-w-sm mx-auto mb-6">
-              Generate blog posts from your stored knowledge. The AI writes from what you know — not generic content.
-            </p>
-            <button
-              onClick={() => setView("create")}
-              className="px-5 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-black font-semibold text-sm transition-all"
-            >
-              Create your first post
-            </button>
-          </div>
+          <EmptyFeatureState
+            icon={FileEdit}
+            title="Blog Writer is ready when your knowledge is"
+            description="Drafts are generated from your stored memories — import notes, articles, or chats first so the AI has something real to write from."
+            onAction={() => setView("create")}
+            actionLabel="Create your first post"
+            actionIcon={Wand2}
+            ctaText="Import more data →"
+            ctaHref="/app/import"
+          />
         )}
 
         {/* Draft List */}

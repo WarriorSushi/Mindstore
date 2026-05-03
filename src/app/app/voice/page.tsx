@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { usePageTitle } from "@/lib/use-page-title";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -384,6 +385,34 @@ export default function VoicePage() {
   }, [mediaStream]);
 
   // ─── Render ─────────────────────────────────────────────────
+
+  // Data-zero: no transcription provider available AND no recordings yet
+  if (providerAvailable === false && !loading && recordings.length === 0) {
+    return (
+      <PageTransition>
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 pb-24">
+          <Stagger>
+            <div className="flex items-center gap-3 mb-8">
+              <div className="flex-1">
+                <h1 className="text-[20px] font-semibold text-white tracking-tight">Voice-to-Memory</h1>
+                <p className="text-[13px] text-zinc-500 mt-0.5">
+                  Record your thoughts — transcribed and saved as searchable knowledge
+                </p>
+              </div>
+            </div>
+          </Stagger>
+          <EmptyFeatureState
+            icon={Mic}
+            title="Voice-to-Memory is ready when transcription is connected"
+            description="Add an OpenAI or Gemini API key in Settings so we can transcribe your recordings and turn them into searchable memories."
+            ctaText="Connect provider →"
+            ctaHref="/app/settings"
+            secondaryText="Gemini's free tier is enough to get started"
+          />
+        </div>
+      </PageTransition>
+    );
+  }
 
   return (
     <PageTransition>

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -561,22 +562,16 @@ export default function NewsletterPage() {
 
             {/* Empty state */}
             {!loading && newsletters.length === 0 && (
-              <div className="text-center py-20">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
-                  <Mail className="w-7 h-7 text-zinc-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-zinc-300 mb-2">No newsletters yet</h3>
-                <p className="text-sm text-zinc-500 mb-6 max-w-sm mx-auto">
-                  Create a digest from your recent memories — AI curates and writes, you edit and send.
-                </p>
-                <button
-                  onClick={openCreate}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 hover:bg-teal-500/20 text-sm font-medium transition-colors"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Create Your First Newsletter
-                </button>
-              </div>
+              <EmptyFeatureState
+                icon={Mail}
+                title="Newsletter Writer is ready when your knowledge is"
+                description="Each newsletter is curated from your recent memories — import notes, articles, and saves first so we have something fresh to digest."
+                onAction={openCreate}
+                actionLabel="Create your first newsletter"
+                actionIcon={Sparkles}
+                ctaText="Import more data →"
+                ctaHref="/app/import"
+              />
             )}
 
             {/* Newsletter list */}

@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePageTitle } from "@/lib/use-page-title";
 import { PageTransition } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -202,7 +203,17 @@ export default function DomainEmbeddingsPage() {
         </div>
       )}
 
-      {!loading && config && stats && (
+      {!loading && config && stats && stats.embeddingCoverage.total === 0 && (
+        <EmptyFeatureState
+          icon={Dna}
+          title="Domain Embeddings is ready when your knowledge is"
+          description="Domain detection and routing only kicks in once there are memories to classify. Import some data so we can analyze and tag it by knowledge area."
+          ctaText="Import your first data →"
+          ctaHref="/app/import"
+        />
+      )}
+
+      {!loading && config && stats && stats.embeddingCoverage.total > 0 && (
         <>
           {/* Stats Row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

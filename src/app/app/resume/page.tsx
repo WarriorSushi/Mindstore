@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageTransition, Stagger } from "@/components/PageTransition";
+import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
 import { usePageTitle } from "@/lib/use-page-title";
 
@@ -416,22 +417,16 @@ export default function ResumeBuilderPage() {
 
           {/* Empty State */}
           {!loading && resumes.length === 0 && (
-            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-12 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-500/10 border border-teal-500/20 mb-4">
-                <FileUser className="h-7 w-7 text-teal-400" />
-              </div>
-              <h3 className="text-base font-medium text-zinc-200 mb-2">No resumes yet</h3>
-              <p className="text-sm text-zinc-500 mb-6 max-w-sm mx-auto">
-                Create a professional resume powered by your stored memories — work experience, skills, projects, all extracted automatically.
-              </p>
-              <button
-                onClick={() => setView("create")}
-                className="inline-flex items-center gap-2 rounded-xl bg-teal-500/10 border border-teal-500/20 px-5 py-2.5 text-sm font-medium text-teal-400 transition-all hover:bg-teal-500/20"
-              >
-                <Sparkles className="h-4 w-4" />
-                Create Your First Resume
-              </button>
-            </div>
+            <EmptyFeatureState
+              icon={FileUser}
+              title="Resume Builder is ready when your knowledge is"
+              description="Resumes are generated from your stored memories — import work history, projects, and skills first so the AI has real material to draw from."
+              onAction={() => setView("create")}
+              actionLabel="Create your first resume"
+              actionIcon={Sparkles}
+              ctaText="Import more data →"
+              ctaHref="/app/import"
+            />
           )}
 
           {/* Resume List */}
