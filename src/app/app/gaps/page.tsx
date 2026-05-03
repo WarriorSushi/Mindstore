@@ -400,6 +400,7 @@ export default function KnowledgeGapsPage() {
                 flex items-center justify-center hover:bg-white/[0.04] transition-all
                 active:scale-[0.95] shrink-0"
               title="Re-analyze"
+              aria-label="Re-analyze knowledge gaps"
             >
               <RefreshCw className="w-4 h-4 text-zinc-400" />
             </button>

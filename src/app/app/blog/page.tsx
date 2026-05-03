@@ -661,6 +661,7 @@ export default function BlogPage() {
                       : "border-white/[0.06] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.12]"
                   )}
                   title="Refine with AI"
+                  aria-label="Refine draft with AI"
                 >
                   <Wand2 className="w-4 h-4" />
                 </button>
@@ -670,6 +671,7 @@ export default function BlogPage() {
                   onClick={copyContent}
                   className="p-2 rounded-lg border border-white/[0.06] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.12] transition-all"
                   title="Copy markdown"
+                  aria-label="Copy draft as markdown"
                 >
                   {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                 </button>
@@ -680,6 +682,7 @@ export default function BlogPage() {
                     onClick={() => setExportFormat(exportFormat ? null : "open")}
                     className="p-2 rounded-lg border border-white/[0.06] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.12] transition-all"
                     title="Export"
+                    aria-label="Export draft"
                   >
                     <Download className="w-4 h-4" />
                   </button>

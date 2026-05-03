@@ -987,6 +987,7 @@ export default function ExplorePage() {
                     : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.06]'
                 }`}
                 title="Saved searches"
+                aria-label="Saved searches"
               >
                 <Star className="w-3.5 h-3.5" />
               </button>
@@ -997,6 +998,7 @@ export default function ExplorePage() {
                 onClick={() => { setSaveSearchDialogOpen(true); setSaveSearchName(search || 'My search'); }}
                 className="p-1.5 rounded-lg text-zinc-600 hover:text-teal-400 hover:bg-teal-500/10 transition-all"
                 title="Save this search"
+                aria-label="Save this search"
               >
                 <Bookmark className="w-3.5 h-3.5" />
               </button>
@@ -1053,6 +1055,7 @@ export default function ExplorePage() {
                           onClick={(e) => { e.stopPropagation(); handleDeleteSavedSearch(ss.id, ss.name); }}
                           className="p-1 rounded-md hover:bg-red-500/10 transition-colors"
                           title="Delete"
+                          aria-label="Delete"
                         >
                           <Trash2 className="w-2.5 h-2.5 text-zinc-600 hover:text-red-400" />
                         </button>
@@ -1208,6 +1211,7 @@ export default function ExplorePage() {
                       : "text-zinc-600 hover:text-zinc-400"
                   }`}
                   title="List view"
+                  aria-label="List view"
                 >
                   <LayoutList className="w-3.5 h-3.5" />
                 </button>
@@ -1219,6 +1223,7 @@ export default function ExplorePage() {
                       : "text-zinc-600 hover:text-zinc-400"
                   }`}
                   title="Compact view"
+                  aria-label="Compact view"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
@@ -1323,6 +1328,7 @@ export default function ExplorePage() {
                     onClick={() => setBatchTagMenuOpen(!batchTagMenuOpen)}
                     className="flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium text-teal-400 hover:text-teal-300 hover:bg-teal-500/10 transition-all active:scale-[0.96]"
                     title="Tag selected memories"
+                    aria-label="Tag selected memories"
                   >
                     <Tag className="w-3 h-3" />
                     <span className="hidden sm:inline">Tag</span>
@@ -1392,6 +1398,7 @@ export default function ExplorePage() {
                   onClick={handleBatchCopy}
                   className="flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-[0.96]"
                   title="Copy selected"
+                  aria-label="Copy selected memories"
                 >
                   <Copy className="w-3 h-3" />
                   <span className="hidden sm:inline">Copy</span>
@@ -1400,6 +1407,7 @@ export default function ExplorePage() {
                   onClick={handleBatchExport}
                   className="flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-[0.96]"
                   title="Export selected as Markdown"
+                  aria-label="Export selected memories as Markdown"
                 >
                   <Download className="w-3 h-3" />
                   <span className="hidden sm:inline">Export</span>
@@ -1409,6 +1417,7 @@ export default function ExplorePage() {
                   disabled={batchDeleting}
                   className="flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all active:scale-[0.96] disabled:opacity-50"
                   title="Delete selected"
+                  aria-label="Delete selected memories"
                 >
                   {batchDeleting ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -1619,6 +1628,7 @@ export default function ExplorePage() {
                       disabled={selectedIndex <= 0}
                       className="p-1.5 hover:bg-white/[0.06] rounded-lg disabled:opacity-20 transition-all"
                       title="Previous (↑ or k)"
+                      aria-label="Previous memory"
                     >
                       <ChevronUp className="w-4 h-4 text-zinc-500" />
                     </button>
@@ -1630,6 +1640,7 @@ export default function ExplorePage() {
                       disabled={selectedIndex >= memories.length - 1}
                       className="p-1.5 hover:bg-white/[0.06] rounded-lg disabled:opacity-20 transition-all"
                       title="Next (↓ or j)"
+                      aria-label="Next memory"
                     >
                       <ChevronDown className="w-4 h-4 text-zinc-500" />
                     </button>
@@ -1784,6 +1795,7 @@ export default function ExplorePage() {
                         onClick={(e) => { e.stopPropagation(); unassignTag(tag.id, [selected.id]); }}
                         className="ml-0.5 opacity-0 group-hover/tag:opacity-100 hover:text-white transition-all"
                         title="Remove tag"
+                        aria-label="Remove tag"
                       >
                         <X className="w-2.5 h-2.5" />
                       </button>
@@ -1929,6 +1941,7 @@ export default function ExplorePage() {
                       onClick={() => handleCopy(selected.content)}
                       className="flex items-center gap-1.5 h-8 px-2 sm:px-3 rounded-xl text-[12px] font-medium text-zinc-400 hover:bg-white/[0.06] transition-colors"
                       title="Copy content"
+                      aria-label="Copy memory content"
                     >
                       {copied ? (
                         <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -1941,6 +1954,7 @@ export default function ExplorePage() {
                       onClick={startEditing}
                       className="flex items-center gap-1.5 h-8 px-2 sm:px-3 rounded-xl text-[12px] font-medium text-zinc-400 hover:bg-white/[0.06] transition-colors"
                       title="Edit memory (e)"
+                      aria-label="Edit memory"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Edit</span>
@@ -1950,6 +1964,7 @@ export default function ExplorePage() {
                       disabled={deleting}
                       className="flex items-center gap-1.5 h-8 px-2 sm:px-3 rounded-xl text-[12px] font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       title="Delete memory"
+                      aria-label="Delete memory"
                     >
                       {deleting ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
