@@ -5,6 +5,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { Brain, RefreshCw, Loader2, Lightbulb, Network, Link2, Layers } from 'lucide-react';
 import { usePageTitle } from "@/lib/use-page-title";
+import { useWebGL } from "@/lib/use-webgl";
 import { PageTransition } from "@/components/PageTransition";
 import { EmptyFeatureState } from "@/components/EmptyFeatureState";
 import { toast } from "sonner";
@@ -23,7 +24,14 @@ export default function FingerprintPage() {
   usePageTitle("Knowledge Fingerprint");
   const [data, setData] = useState<{ nodes: any[]; edges: any[]; clusters: any[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'graph' | 'breakdown'>('graph');
+  const webgl = useWebGL();
+  const [viewMode, setViewMode] = useState<'graph' | 'breakdown'>('breakdown');
+
+  // When WebGL becomes available, opt the user into the 3D view by default.
+  // (Stays in breakdown mode on devices that can't render the GraphCanvas.)
+  useEffect(() => {
+    if (webgl === true) setViewMode('graph');
+  }, [webgl]);
 
   useEffect(() => { loadFingerprint(); }, []);
 
@@ -74,7 +82,10 @@ export default function FingerprintPage() {
           <div className="flex rounded-xl bg-white/[0.04] border border-white/[0.06] p-0.5">
             <button
               onClick={() => setViewMode('graph')}
-              className={`px-3 py-1.5 rounded-[10px] text-[12px] font-medium transition-all ${
+              disabled={webgl === false}
+              title={webgl === false ? 'WebGL is not available on this device' : 'Show 3D graph'}
+              aria-label={webgl === false ? 'Graph view (WebGL not available)' : 'Graph view'}
+              className={`px-3 py-1.5 rounded-[10px] text-[12px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
                 viewMode === 'graph'
                   ? 'bg-teal-500/15 text-teal-300 shadow-sm'
                   : 'text-zinc-500 hover:text-zinc-300'
