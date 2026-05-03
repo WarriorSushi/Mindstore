@@ -76,7 +76,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-8 | Hand-maintained nav config in `src/app/app/AppShell.tsx`. Will rot as plugins are added. | Medium | Generate nav from registry + plugin UI manifest entries (Phase 1 polish). |
 | ARCH-9 | Embedding-dim mismatch handled defensively in retrieval (`vector_dims(m.embedding) = ${embDim}`) but no migration path when a user changes provider. | Medium | Add a "re-embed all" job; surface in settings when provider changes. |
 | ARCH-10 | Two near-duplicate routes: `/api/v1/stats` and `/api/v1/knowledge-stats`. | Low (per "additive only" rule, mark redundant — `knowledge-stats` subsumes `stats`) | Phase 0 cleanup: keep `knowledge-stats`, redirect `stats` callers, then deprecate `stats`. |
-| ARCH-11 | `src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist. | Low | Phase 1 cleanup: confirm only `api-keys.ts` is referenced, then delete `apikey.ts`. |
+| ARCH-11 | ~~`src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist.~~ | ✅ DONE (Phase 1) | Legacy `apikey.ts` was unreferenced; deleted. `api-keys.ts` remains the single active validator. |
 | ARCH-12 | Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`. Functional today, but a maintenance hazard. | Low | Phase 1: rename file → match registry, register old slug as alias for back-compat. |
 | ARCH-13 | `npm install` reports 15 advisories (9 moderate, 6 high). | Medium | Phase 1: run `npm audit fix`; defer `--force`/breaking upgrades to a dedicated PR with owner sign-off. |
 | ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | Phase 1: add fetch-time IP check via `dns.lookup` + custom agent that re-validates the resolved IP before connecting. Surface for any new SSRF-prone routes too. |
@@ -315,7 +315,7 @@ Only the owner can resolve these. Each is named so I can reference it in subsequ
 
 Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 
-- [ ] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (delete the legacy file).
+- [x] ARCH-11: consolidate `apikey.ts` and `api-keys.ts` (legacy file deleted; only `api-keys.ts` is referenced).
 - [ ] ARCH-12: rename plugin port files to match registry slugs + alias map.
 - [ ] ARCH-14: add fetch-time DNS-resolved IP check to `isPublicHttpUrl()`.
 - [ ] ARCH-13: run `npm audit fix` (non-breaking only); breaking upgrades in a separate owner-approved PR.
