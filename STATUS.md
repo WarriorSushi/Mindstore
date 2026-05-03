@@ -30,13 +30,13 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | Layer | Count | Notes |
 |---|---|---|
-| API route files (`route.ts`) | 77 | README still says 66 (stale). |
-| App pages | 39 | All render real-API data; zero mock content. |
+| API route files (`route.ts`) | 79 | +2 from Phase 2: `/api/v1/metabolism/{current,history}`. |
+| App pages | 40 | +1 from Phase 2: `/app/metabolism`. |
 | Plugin manifests in registry | 35 | README badge says 35 (matches now); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. |
 | Doc files (root + `docs/`) | 113 | Plus 4 new master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts moved to `docs/archive/`. |
-| Unit test files | 54 | **369 individual test cases.** Includes 24 new Phase-0 security tests under `tests/unit/security-phase0/`. |
+| Unit test files | 56 | **389 individual test cases.** +9 SafeFetch + 11 metabolism on top of the Phase-0 baseline. |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -79,7 +79,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-11 | ~~`src/server/apikey.ts` (legacy OpenAI-only) and `src/server/api-keys.ts` (active validator) both exist.~~ | ✅ DONE (Phase 1) | Legacy `apikey.ts` was unreferenced; deleted. `api-keys.ts` remains the single active validator. |
 | ARCH-12 | ~~Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`.~~ | ✅ DONE (Phase 1) | Port files renamed to match registry slugs. Old slugs registered as `aliases` so the runtime + DB lookups still resolve them. API route URLs (`/api/v1/plugins/youtube-transcript` etc.) preserved for back-compat with external clients. Also fixed two latent bugs the rename surfaced: a typo in `BUILTIN_OVERRIDES` key (`writing-style` → `writing-analyzer`) that had silently disabled the writing-analyzer dashboard widget, and a missing `ui.dashboardWidgets` manifest entry. |
 | ARCH-13 | 🟡 PARTIAL (Phase 1, commit `8ee2d9d`) | Medium | `npm audit fix` applied (15 → 7 advisories). Remaining 7 require breaking-change upgrades (`next@16.2.4`, `uuid@14`); deferred to a dedicated PR with owner sign-off. |
-| ARCH-14 | `isPublicHttpUrl()` SSRF guard is hostname/literal-IP only — does NOT resolve DNS. A determined attacker can defeat it via DNS rebinding (public hostname → RFC1918 A-record at fetch time). | Medium | ⏳ NOT STARTED (Phase 1 remainder). Cleanup agent stopped at the limit before reaching this fix. Plan: add fetch-time `dns.lookup` re-validation in a `safeFetch` wrapper around `import-url`. |
+| ARCH-14 | ~~SSRF DNS-rebinding.~~ | ✅ PARTIAL FIX (Phase 1, commit `35cf00e`) | `safeFetch(url, opts)` resolves hostnames via `dns.lookup({all:true})` and rejects any address in a private/loopback range. `/api/v1/import-url` uses it. 9 new tests under `tests/unit/security-phase0/safe-fetch.test.ts`. Residual TOCTOU window between dns.lookup and fetch tracked for Phase 2 (custom http/https Agent with per-attempt lookup callback). |
 
 ---
 
@@ -213,6 +213,7 @@ Codes:
 | `/app/settings` | PRODUCTION | — |
 | `/app/plugins` | PRODUCTION | — |
 | `/app/onboarding` | WORKS | ORPHAN-by-design |
+| `/app/metabolism` | PRODUCTION | NEW (Phase 2 A.9) |
 
 **Page-state work remaining:**
 - A11Y on `/app/explore`, `/app/blog`, `/app/gaps` and a general icon-only-button sweep.
@@ -234,7 +235,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | 6 | Cross-Pollination Engine | partial | 2 |
 | 7 | Thought Threading | absent | 3 |
 | 8 | `.mind` Portable File | absent (spec exists) | 4 |
-| 9 | Knowledge Metabolism Score | absent | 2 |
+| 9 | Knowledge Metabolism Score | ✅ shipped (Phase 2, commit `c0cc2b2`) | — |
 | 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
 | N1 | Mind Marketplace | absent | 4 |
 | N2 | Knowledge Attack Surface | absent | 4 |
@@ -326,16 +327,16 @@ Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 - [x] ARCH-12: rename plugin port files to match registry slugs + alias map. Commit `cf85087`.
 - [x] ARCH-10: deprecate `/api/v1/stats` (sunset 2026-08-01); knowledge-stats expanded; `stats-adapter` lib added. Commit `14d50fa`.
 - [🟡] ARCH-13: non-breaking `npm audit fix` applied (15→7); breaking upgrades pending owner sign-off. Commit `8ee2d9d`.
-- [ ] ARCH-14: fetch-time DNS-resolved IP check (`safeFetch` helper) — agent stopped before this; remaining for next session.
+- [x] ARCH-14: fetch-time DNS-resolved IP check via `safeFetch`. Commit `35cf00e`.
 - [x] Page-polish sweep — empty states (17 pages). Commit `433e285`.
 - [x] Page-polish sweep — inline error wrapping (16 of 16 pages). Commits `0bd693a` + `6bef21f`.
-- [ ] Page-polish sweep — accessibility (8+ pages: `/app/explore`, `/app/blog`, `/app/gaps` + general icon-button audit).
+- [x] Page-polish sweep — accessibility (19 icon-only buttons across `/app/explore`, `/app/blog`, `/app/gaps` now carry `aria-label`). Commit `006780e`.
 - [x] E2E test scaffold: 6 golden paths under `tests/e2e/golden-paths.spec.ts`. Commit `2e5a721`.
 - [x] ADR 0003 — per-user settings table design (resolves ARCH-1 once BLOCK-5 unblocks). Commit `b06a300`.
 - [x] `RUNBOOK.md`, `CHANGELOG.md`, `TESTING_STRATEGY.md`, `docs/PLUGIN_MATURITY_MATRIX.md`. Commit `34d24db`.
 - [ ] Generate nav from registry (replace hand-maintained `AppShell.tsx` config).
 - [ ] Add inline rate-limits to the ~40 routes that lack them (Phase 1 sub-agent dispatch when capacity returns).
-- [ ] WebGL fallback path on `/app/mindmap` and `/app/fingerprint` (MOBILE flag).
+- [x] WebGL fallback: `useWebGL()` hook + 2D-breakdown default on `/app/fingerprint`. `/app/mindmap` uses 2D canvas already (no WebGL). Commit `53c2299`.
 - [ ] Phase 1 routes that need API-shaped tests under `tests/api/` (deliverable when Postgres test container helper lands).
 - [ ] `RUNBOOK.md`, `CHANGELOG.md`, `TESTING_STRATEGY.md`, `docs/PLUGIN_MATURITY_MATRIX.md`.
 
