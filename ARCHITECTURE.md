@@ -17,10 +17,10 @@
   2. Vector similarity (pgvector, cosine distance)
   3. Hierarchical tree index (PageIndex-inspired reasoning paths)
   4. Reciprocal Rank Fusion to combine all three
-- **Embeddings:** OpenAI text-embedding-3-small (default), pluggable
-- **Storage:** PostgreSQL for structured data, S3-compatible for files/media
-- **Auth:** NextAuth.js with OAuth (Google, GitHub, email)
-- **MCP:** Server component, stdio + HTTP transport
+- **Embeddings:** Gemini `text-embedding-004` (default — free tier, 768d), with OpenAI `text-embedding-3-small` (1536d) and Ollama `nomic-embed-text` (768d) as alternatives. Selection lives in `src/server/embeddings.ts` and is per-user via the `embedding_provider` setting (post-Phase 1; today: global).
+- **Storage:** PostgreSQL for all structured data, including the `media` table with `file_path TEXT` pointers. Object storage (Vercel Blob) is **not yet wired**; image-to-memory and voice-to-memory currently store base64 in DB. Vercel Blob integration ships in Phase 4 alongside the `.mind` portable file format.
+- **Auth:** NextAuth v5 with Google OAuth (multi-user) and a single-user fallback via the `00000000-0000-0000-0000-000000000000` default user. Session strategy is JWT.
+- **MCP:** HTTP transport at `/api/mcp` via `@modelcontextprotocol/sdk`'s `WebStandardStreamableHTTPServerTransport`. Stdio is not exposed in the deployed app (use the bundled extension or a local proxy).
 
 ## Database Schema
 
@@ -108,12 +108,12 @@
 4. **Fusion:** Reciprocal Rank Fusion (RRF) combines all three scores:
    `score = Σ 1/(k + rank_i)` for each layer
 
-### Why This Is Better Than Everything Else
-- BM25 alone misses semantic meaning
-- Vector alone misses exact keywords and structure
-- Tree alone is slow for simple queries
-- RRF fusion gets the best of all three — handles both "find exact phrase" and "find conceptually similar" queries
-- The tree layer adds REASONING about document structure that no other personal knowledge tool has
+### Why hybrid retrieval
+
+- BM25 alone misses semantic meaning.
+- Vector alone misses exact keywords and structure.
+- RRF fusion gets the best of both — handles "find exact phrase" and "find conceptually similar" in one pass.
+- The tree layer today is a lightweight grouping (`source_type → source_title`, with averaged-embedding centroids per group). It contributes structural signal but is **not** a full PageIndex-style LLM-summarized hierarchy yet — that upgrade is a Phase-2 deliverable. The current layer is honest about its scope; the comment in `retrieval.ts` is being reworked to match.
 
 ## Community Extension Points
 - **Importers:** npm packages that implement ImporterInterface

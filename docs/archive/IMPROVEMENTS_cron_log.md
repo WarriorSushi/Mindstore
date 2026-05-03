@@ -1,3 +1,7 @@
+> **ARCHIVED — 2026-05-03.** This is the raw output of an automated 30-min agent cron (`Frain`). It's history, not documentation. Treat any individual entry as suggestive but unauthoritative; reach for `../../STATUS.md` for current state.
+
+---
+
 # MindStore Improvement Log
 
 _Automated 30-min improvement cycles by Frain_

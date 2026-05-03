@@ -1,3 +1,7 @@
+> **ARCHIVED — 2026-05-03.** Of the 10 innovations described below, only #2 (Knowledge Fingerprint) and #10 (MCP Server) are shipped. Two more (#4 Forgetting Curve, #6 Cross-Pollination) are partially implemented. The rest are still aspirational. The current, code-anchored backlog with implementation sketches lives in `../../FEATURE_BACKLOG.md`. This file is preserved for historical context — do not cite it as a description of the current product.
+
+---
+
 # MindStore Innovation Layer — What Makes This An "Aha" Product
 
 ## 1. MEMORY CONSOLIDATION ENGINE (like how the brain works during sleep)

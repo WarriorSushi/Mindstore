@@ -1,3 +1,7 @@
+> **ARCHIVED — 2026-05-03 as v0.** Implementation has not begun. This document will be revived as the v1 design source when Phase 4 of `../../PRODUCTION_READINESS.md` starts; until then it is a vision doc, not a contract. The Phase-4 entry in `../../FEATURE_BACKLOG.md` (entry A.8) tracks the realistic v1 shape.
+
+---
+
 # `.mind` File Format — Complete Specification & Vision Document
 
 ## Context for Reader

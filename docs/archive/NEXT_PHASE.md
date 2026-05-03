@@ -1,3 +1,7 @@
+> **ARCHIVED — 2026-05-03.** Superseded by `../../PRODUCTION_READINESS.md`. Branch references (`frain/improve`, `codex/local-dev`) and dates below are stale; preserved here for history.
+
+---
+
 # MindStore — Next Phase Plan
 
 **Date:** March 26, 2026

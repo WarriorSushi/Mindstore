@@ -25,3 +25,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Local design-only / not-shipped folders. The folder name itself instructs this.
+landing page templates gitignore this/
+
+# Claude/agent local scratch — see CLAUDE_TAKEOVER.md
+.claude-scratch/

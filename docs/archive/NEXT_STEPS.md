@@ -1,3 +1,7 @@
+> **ARCHIVED — 2026-05-03.** Superseded by `../../STATUS.md` §9 + `../../PRODUCTION_READINESS.md`. Preserved here for history.
+
+---
+
 # MindStore — What's Next (Production Focus)
 
 **Date:** March 26, 2026

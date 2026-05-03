@@ -57,7 +57,7 @@ The project may accept broad feature contributions, but maintainers retain final
 
 ## Licensing And Commercial Direction
 
-MindStore is currently MIT-licensed at the repository level.
+MindStore is licensed under the [Functional Source License, Version 1.1, MIT Future License (FSL-1.1-MIT)](./LICENSE). Each version converts to MIT two years after its release. See [LICENSING.md](./LICENSING.md) for the full explanation.
 
 Future changes to licensing strategy are governance events and will be handled deliberately, not silently. See [LICENSING.md](./LICENSING.md).
 
