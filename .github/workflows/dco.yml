@@ -8,6 +8,7 @@ on:
       - "codex/**"
       - "feat/**"
       - "fix/**"
+      - "claude/**"
 
 jobs:
   dco:

@@ -50,7 +50,6 @@ const SECTION_LABELS: Record<string, string> = {
   build: "Build",
   adr: "Architecture Decisions",
   releases: "Release Notes",
-  codex: "Engineering Record",
 };
 
 const SECTION_ORDER = [
@@ -68,7 +67,6 @@ const SECTION_ORDER = [
   "build",
   "adr",
   "releases",
-  "codex",
 ] as const;
 
 export async function getDocBySlug(slug: string[]): Promise<DocPage | null> {
