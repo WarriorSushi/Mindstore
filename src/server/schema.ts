@@ -391,6 +391,37 @@ export const indexingJobs = pgTable('indexing_jobs', {
   index('idx_indexing_jobs_user_type').on(table.userId, table.jobType, table.status),
 ]);
 
+// === PHASE 4 INNOVATION B.2: KNOWLEDGE ATTACK SURFACE ===
+// Per FEATURE_BACKLOG.md B.2. A *security audit of your knowledge* —
+// scans the user's memories for exposed secrets, single points of
+// failure (critical knowledge in only 1-2 memories), source silos, and
+// dependency gaps. Surfaces findings on /app/security so the user can
+// remediate.
+
+export const knowledgeRiskTypeEnum = pgEnum('knowledge_risk_type', [
+  'secret', 'spof', 'silo', 'gap', 'pii',
+]);
+
+export const knowledgeRiskSeverityEnum = pgEnum('knowledge_risk_severity', [
+  'critical', 'high', 'medium', 'low',
+]);
+
+export const knowledgeRisks = pgTable('knowledge_risks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  riskType: knowledgeRiskTypeEnum('risk_type').notNull(),
+  severity: knowledgeRiskSeverityEnum('severity').notNull(),
+  description: text('description').notNull(),
+  affectedMemoryIds: uuid('affected_memory_ids').array().default(sql`'{}'::uuid[]`).notNull(),
+  metadata: jsonb('metadata').default({}).notNull(),
+  detectedAt: timestamp('detected_at').defaultNow().notNull(),
+  dismissed: integer('dismissed').default(0).notNull(),
+  dismissedAt: timestamp('dismissed_at'),
+}, (table) => [
+  index('idx_knowledge_risks_user').on(table.userId, table.detectedAt),
+  index('idx_knowledge_risks_user_dismissed').on(table.userId, table.dismissed, table.severity),
+]);
+
 // === PHASE 3 INNOVATION A.4: FORGETTING CURVE (WHOLE BASE) ===
 // Per FEATURE_BACKLOG.md A.4. Applies Ebbinghaus's R = e^(-t/S) decay
 // to *every* memory, not just the ones the user made flashcards for.

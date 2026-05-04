@@ -511,6 +511,36 @@ async function migrate() {
     )
   `);
 
+  // Phase 4 (Knowledge Attack Surface, B.2) — security audit of knowledge.
+  await db.execute(sql`
+    DO $$ BEGIN
+      CREATE TYPE knowledge_risk_type AS ENUM ('secret', 'spof', 'silo', 'gap', 'pii');
+    EXCEPTION WHEN duplicate_object THEN null;
+    END $$
+  `);
+  await db.execute(sql`
+    DO $$ BEGIN
+      CREATE TYPE knowledge_risk_severity AS ENUM ('critical', 'high', 'medium', 'low');
+    EXCEPTION WHEN duplicate_object THEN null;
+    END $$
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS knowledge_risks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) NOT NULL,
+      risk_type knowledge_risk_type NOT NULL,
+      severity knowledge_risk_severity NOT NULL,
+      description TEXT NOT NULL,
+      affected_memory_ids UUID[] NOT NULL DEFAULT '{}',
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      dismissed INTEGER NOT NULL DEFAULT 0,
+      dismissed_at TIMESTAMPTZ
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_knowledge_risks_user ON knowledge_risks(user_id, detected_at DESC)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_knowledge_risks_user_dismissed ON knowledge_risks(user_id, dismissed, severity)`);
+
   // Phase 3 (Forgetting Curve, A.4) — per-memory forgetting-risk scores.
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS memory_forgetting_risk (
