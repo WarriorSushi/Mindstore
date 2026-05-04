@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
-**Last refreshed:** 2026-05-04 (late session)
-**Refreshed by:** Claude (Opus 4.7) — autonomous improvement session: route audit + 14 fixes across 12 routes + .mind UI + reliability bugs
+**Last refreshed:** 2026-05-04 (very late session)
+**Refreshed by:** Claude (Opus 4.7) — second autonomous session: 35 plugin routes hardened + route invariant tests + chat auth gap closed
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -16,7 +16,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 |---|---|---|
 | `node_modules` installed | ✅ Installed | Verified locally (`npx vitest run` reports 441 passing). |
 | `npm run typecheck` | ✅ Passing | Last verified at the Phase 0 closure; not re-run after Phase 2/3/4 commits — re-verify before next merge. |
-| `npm test` | ✅ 452 / 452 | 63 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (17, +1 secret-leak regression test), attribution (8), mind-file (10), plus other increments. |
+| `npm test` | ✅ 545 / 545 | 64 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (17, +1 secret-leak regression test), attribution (8), mind-file (10), route-invariants (93, NEW — locks the auth+rate-limit pattern across the API surface), plus other increments. |
 | `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
 | `npm run build` | ✅ Passing | Last verified at Phase 0 closure; re-verify before next merge given the `src/server/mind-file/` work is untracked. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
@@ -36,7 +36,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
 | Doc files (root + `docs/`) | 113 | Plus 4 master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts in `docs/archive/`. |
-| Unit test files | 63 | **451 individual test cases.** +62 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file (10 round-trip + rejection cases). |
+| Unit test files | 64 | **545 individual test cases.** +156 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file, route-invariants (93 cases — static-analysis lockdown of the auth+rate-limit pattern). |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -114,6 +114,8 @@ Severity follows OWASP-style risk weighting; full per-route table in §6.
 | SEC-19 | HIGH ✅ DONE | `/api/v1/capture` was unrate-limited. The browser extension fans into this route, so a runaway/hostile caller could fill the DB with one POST per memory. | `src/app/api/v1/capture/route.ts` | Commit `d93766f`: `requireUserId` + `RATE_LIMITS.write` + 100-capture-per-request cap. |
 | SEC-20 | HIGH ✅ DONE | `/api/v1/api-keys` POST/DELETE — the most sensitive endpoint in the API surface (creates and revokes API keys) — had no rate limit. | `src/app/api/v1/api-keys/route.ts` | Commit `23d37a7`: `RATE_LIMITS.write` on POST + DELETE, `requireUserId`, UUID validation on revoke, Zod on create body. |
 | SEC-21 | MEDIUM ✅ DONE | `/api/v1/tags` POST/DELETE were unrate-limited; `/api/v1/notifications` POST too. | both routes | Commit `d93766f`: `RATE_LIMITS.write` + `requireUserId` on all mutation paths. |
+| SEC-22 | **HIGH** ✅ DONE | `/api/v1/chat` had no auth at all — anyone with the URL could invoke the user's configured LLM provider. | `src/app/api/v1/chat/route.ts` | Commit `b010049`: `requireUserId` gate added before the existing rate limit. The route invariant test catches the gap if it's reintroduced. |
+| SEC-23 | MEDIUM ✅ DONE (bulk) | All 33 individual plugin POST routes plus the orchestrator at `/api/v1/plugins` and `/api/v1/plugins/runtime` were unrate-limited and inconsistent on auth (using `getUserId` directly instead of the `requireUserId` gate pattern). | `src/app/api/v1/plugins/**/route.ts` (35 files) | Commit `8e38752`: bulk hardening pass via three parallel general-purpose subagents. Auth gate hoisted to top of every handler; `applyRateLimit` added to every POST (using `RATE_LIMITS.ai` for LLM/embedding-heavy plugins, `RATE_LIMITS.write` otherwise). Verified: `tests/unit/route-invariants.test.ts` includes lockdown assertions that no plugin route imports `@/server/user`, every plugin route calls `requireUserId`, and every plugin POST handler calls `applyRateLimit`. |
 
 ---
 
@@ -403,6 +405,29 @@ The owner authorized autonomous improvement work; this session shipped 7 commits
 - `c25d506` — `/app/portable` page + AppShell nav entry + discovery links from `/app/import` and `/app/export`.
 
 Ten of the original 21 SEC IDs are now closed. 8 new SEC IDs (SEC-14..21) created during the audit and immediately closed. SEC-10 and SEC-11 remain pending (need owner-side decisions about quotas and multi-user tenancy).
+
+### Late-2026-05-04 second autonomous session (chained)
+
+The owner asked the next-session plan items to be executed; this session shipped 4 more commits.
+
+- `8e38752` — **Bulk plugin route hardening (35 routes).** Closes SEC-23 (NEW). Three parallel general-purpose subagents each handled ~12 plugin route files, applying the standardized auth-gate + rate-limit pattern from commit `23d37a7`. The main `/plugins/route.ts` orchestrator and `/plugins/runtime/route.ts` were converted directly. Distribution by rate-limit bucket: 11 routes use `RATE_LIMITS.ai` (LLM/embedding-heavy plugins like blog-draft, custom-rag, multi-language), 16 use `RATE_LIMITS.write` (importers, sync, export, mutating analysis), 6 are GET-only and get auth gate without rate limit (knowledge-gaps, topic-evolution, writing-style, sentiment-timeline, mind-map-generator, runtime).
+- `b010049` — **Route invariant tests + close SEC-22.** Adds `tests/unit/route-invariants.test.ts` — 93 static-analysis tests that lock in the security pattern across the API surface. Each route file is checked individually so a missing auth gate surfaces as a specific failing test pointing at the offending file. Three buckets: `EXPLICITLY_PUBLIC` (3 routes with documented justification), `LEGACY_GET_USER_ID` (20 routes still on the legacy pattern, allowed to shrink only), and the default — every route must call `requireUserId`. Plugin-route invariants are stricter: zero `@/server/user` imports, every route uses `requireUserId`, every POST has `applyRateLimit`. Same commit closes SEC-22 (chat route had no auth at all — anyone with the URL could invoke the user's LLM provider).
+
+**Cumulative session totals (both autonomous sessions, 2026-05-04):**
+- 12 commits to `main`
+- 17 SEC IDs closed (SEC-8..23, plus the four that were already DONE)
+- 4 ARCH IDs closed (ARCH-15..18)
+- 1 innovation shipped end-to-end (#8 .mind portable file)
+- Test count 369 → 545 (+176)
+- Route count 79 → 90
+- 35 plugin routes hardened
+- 93 invariant tests locked in
+- New page `/app/portable`
+
+Residual tracked work for the next session:
+- 20 routes still on legacy `getUserId` (catalogued in `LEGACY_GET_USER_ID` set in `tests/unit/route-invariants.test.ts`). All have working auth — migration is consistency only.
+- SEC-10 (per-user import quota), SEC-11 (extension package multi-user auth), SEC-23 — already closed in this session.
+- Owner blockers BLOCK-1..7 still gate ARCH-1, ARCH-2, ARCH-5, BLOCK-1/2 deployment fixes.
 - [ ] #N1 Mind Marketplace.
 
 Phases 5: see `PRODUCTION_READINESS.md`.
