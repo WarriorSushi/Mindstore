@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   AIClientError,
   type AIMessage,
@@ -18,6 +19,9 @@ interface ChatRequestBody {
  * Uses the shared AI client so chat and plugins resolve providers/models the same way.
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+
   const limited = applyRateLimit(req, 'chat', RATE_LIMITS.ai);
   if (limited) return limited;
 
