@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
-**Last refreshed:** 2026-05-04 (very late session)
-**Refreshed by:** Claude (Opus 4.7) — second autonomous session: 35 plugin routes hardened + route invariant tests + chat auth gap closed
+**Last refreshed:** 2026-05-04 (very late session — third autonomous push)
+**Refreshed by:** Claude (Opus 4.7) — third autonomous session: 4 new MCP tools (A.10) + /app/mcp-setup page + demo scripts + marketplace listings
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -16,7 +16,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 |---|---|---|
 | `node_modules` installed | ✅ Installed | Verified locally (`npx vitest run` reports 441 passing). |
 | `npm run typecheck` | ✅ Passing | Last verified at the Phase 0 closure; not re-run after Phase 2/3/4 commits — re-verify before next merge. |
-| `npm test` | ✅ 545 / 545 | 64 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (17, +1 secret-leak regression test), attribution (8), mind-file (10), route-invariants (93, NEW — locks the auth+rate-limit pattern across the API surface), plus other increments. |
+| `npm test` | ✅ 561 / 561 | 65 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (17, +1 secret-leak regression test), attribution (8), mind-file (10), route-invariants (93), mcp-tools (16, NEW — schema invariants + dispatcher routing for the four new MCP tools), plus other increments. |
 | `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
 | `npm run build` | ✅ Passing | Last verified at Phase 0 closure; re-verify before next merge given the `src/server/mind-file/` work is untracked. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
@@ -31,12 +31,12 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | Layer | Count | Notes |
 |---|---|---|
 | API route files (`route.ts`) | 90 | +11 since the 2026-05-03 refresh: prior 9 (risks, mind-diff, forgetting, adversarial, fingerprint snapshots, provenance) plus `/api/v1/export/mind` and `/api/v1/import/mind` (commit `bf09e93`). |
-| App pages | 40 | +4 since the 2026-05-03 refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`, `/app/portable` (Phase 4 A.8 UI, commit `c25d506`). |
+| App pages | 41 | +5 since the 2026-05-03 refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`, `/app/portable` (Phase 4 A.8 UI, commit `c25d506`), `/app/mcp-setup` (one-click MCP client configs for 6 tools, commit `41b0763`). |
 | Plugin manifests in registry | 35 | README badge says 35 (matches); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
 | Doc files (root + `docs/`) | 113 | Plus 4 master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts in `docs/archive/`. |
-| Unit test files | 64 | **545 individual test cases.** +156 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file, route-invariants (93 cases — static-analysis lockdown of the auth+rate-limit pattern). |
+| Unit test files | 65 | **561 individual test cases.** +172 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file, route-invariants (93), mcp-tools (16 — schema + dispatcher invariants for the four new MCP tools). |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -255,7 +255,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | 7 | Thought Threading | absent | 3 |
 | 8 | `.mind` Portable File | ✅ shipped end-to-end (Phase 4, commits `bf09e93` server + `c25d506` UI). New page `/app/portable` wraps export/import with dry-run preview before commit. Discovery links from `/app/import` and `/app/export`; nav entry under "Sync & Export". | — |
 | 9 | Knowledge Metabolism Score | ✅ shipped (Phase 2, commit `c0cc2b2`) | — |
-| 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
+| 10 | MCP Server | ✅ shipped end-to-end. Core 3 tools + 4 extended tools (A.10, commit `03c2748`): `get_timeline`, `get_contradictions`, `get_threads`, `learn_fact`. Bearer auth (Phase 0). One-click client configs at `/app/mcp-setup` (commit `41b0763`). Marketplace listing copy + demo video scripts in `docs/mcp/` (commit `1d26559`). | — |
 | N1 | Mind Marketplace | absent | 4 |
 | N2 | Knowledge Attack Surface | ✅ shipped (Phase 4, commit `0802dc3`) | — |
 | N3 | Knowledge Oracle | absent | 5 |
@@ -267,7 +267,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | N9 | Memory Audit Trail | ✅ shipped (Phase 4, commit `81f0447`) | — |
 | N10 | Mind Coaching | absent | 5 |
 
-**Progress tally:** 9 of 20 innovations shipped end-to-end. (#2, #3, #4, #5, #8, #9, #10, #N2, #N9.) 11 absent or partial.
+**Progress tally:** 9 of 20 innovations shipped end-to-end (#2, #3, #4, #5, #8, #9, #N2, #N9), plus #10 (MCP Server) now expanded from "core 3 tools" to "core 3 + 4 extended" — full A.10 surface. 11 still absent or partial.
 
 ---
 
@@ -413,7 +413,7 @@ The owner asked the next-session plan items to be executed; this session shipped
 - `8e38752` — **Bulk plugin route hardening (35 routes).** Closes SEC-23 (NEW). Three parallel general-purpose subagents each handled ~12 plugin route files, applying the standardized auth-gate + rate-limit pattern from commit `23d37a7`. The main `/plugins/route.ts` orchestrator and `/plugins/runtime/route.ts` were converted directly. Distribution by rate-limit bucket: 11 routes use `RATE_LIMITS.ai` (LLM/embedding-heavy plugins like blog-draft, custom-rag, multi-language), 16 use `RATE_LIMITS.write` (importers, sync, export, mutating analysis), 6 are GET-only and get auth gate without rate limit (knowledge-gaps, topic-evolution, writing-style, sentiment-timeline, mind-map-generator, runtime).
 - `b010049` — **Route invariant tests + close SEC-22.** Adds `tests/unit/route-invariants.test.ts` — 93 static-analysis tests that lock in the security pattern across the API surface. Each route file is checked individually so a missing auth gate surfaces as a specific failing test pointing at the offending file. Three buckets: `EXPLICITLY_PUBLIC` (3 routes with documented justification), `LEGACY_GET_USER_ID` (20 routes still on the legacy pattern, allowed to shrink only), and the default — every route must call `requireUserId`. Plugin-route invariants are stricter: zero `@/server/user` imports, every route uses `requireUserId`, every POST has `applyRateLimit`. Same commit closes SEC-22 (chat route had no auth at all — anyone with the URL could invoke the user's LLM provider).
 
-**Cumulative session totals (both autonomous sessions, 2026-05-04):**
+**Cumulative session totals (first two autonomous sessions, 2026-05-04):**
 - 12 commits to `main`
 - 17 SEC IDs closed (SEC-8..23, plus the four that were already DONE)
 - 4 ARCH IDs closed (ARCH-15..18)
@@ -424,10 +424,35 @@ The owner asked the next-session plan items to be executed; this session shipped
 - 93 invariant tests locked in
 - New page `/app/portable`
 
+### Late-2026-05-04 third autonomous session (MCP push)
+
+The owner asked for the next-session-after-next plan items: build the public MCP surface so the product is sellable as "your second brain, plugged into every AI tool." Four commits:
+
+- `03c2748` — **Phase 2 (A.10): four extended MCP tools.** `get_timeline(topic, fromDate?, toDate?)`, `get_contradictions(query)`, `get_threads(topic?)`, `learn_fact(content, category?, source?)`. Server version bumped 0.2.0 → 0.3.0. The MCP surface is now 7 core tools (was 3) plus any plugin-defined tools, exposed through the existing Bearer-auth-gated `/api/mcp` endpoint. 16 new schema-invariant + dispatcher-routing tests in `tests/unit/mcp-tools.test.ts`.
+- `41b0763` — **`/app/mcp-setup` page.** One-click client configs for Claude Desktop (uses the `npx mcp-remote` shim), Claude Code (single CLI command), Cursor (native HTTP MCP), Codex CLI (TOML), Cline VS Code extension (JSON), Continue (YAML). Auto-injects the user's API key — either freshly minted via `POST /api/v1/api-keys` (showing the rawKey once with a "save now" warning) or pasted in. Auto-detects the deployment origin so self-hosters get correct URLs. Nav entry under "system" section in AppShell.
+- `1d26559` — **Marketing-ready docs.** `docs/mcp/demo-scripts.md` with shot-by-shot scripts for three demo videos (Claude Desktop / Cursor / Claude-Code-contradictions) plus a 30s self-host-vs-cloud bonus. `docs/mcp/marketplace-listings.md` with submission-ready copy for Anthropic's directory, the OpenAI Apps SDK (when GA), Cursor's directory, the third-party indexes (mcpservers.org, smithery.ai, glama.ai), the GitHub README's MCP section, and a Hacker News Show HN post template. `docs/mcp/index.md` rewritten as the entry point.
+
+These three commits collectively reposition MindStore from "another second brain app" to "the second brain that plugs into every AI tool you use." This is the differentiator the strategy doc earlier in the conversation called the strongest market position the codebase supports.
+
+**Cumulative across all three autonomous sessions (2026-05-04):**
+- 16 commits to `main`
+- 17 SEC IDs closed
+- 4 ARCH IDs closed
+- 2 innovations shipped end-to-end (#8 .mind portable file + full #10 MCP server)
+- Test count 369 → 561 (+192)
+- Route count 79 → 90
+- 35 plugin routes hardened, 93 route invariants locked in, 16 MCP tool invariants locked in
+- 2 new pages: `/app/portable`, `/app/mcp-setup`
+- 3 new MCP marketing docs (demo-scripts.md, marketplace-listings.md, rewritten index.md)
+
 Residual tracked work for the next session:
-- 20 routes still on legacy `getUserId` (catalogued in `LEGACY_GET_USER_ID` set in `tests/unit/route-invariants.test.ts`). All have working auth — migration is consistency only.
-- SEC-10 (per-user import quota), SEC-11 (extension package multi-user auth), SEC-23 — already closed in this session.
-- Owner blockers BLOCK-1..7 still gate ARCH-1, ARCH-2, ARCH-5, BLOCK-1/2 deployment fixes.
+- **Recording the demo videos** (the user has to do this — scripts are in `docs/mcp/demo-scripts.md`).
+- **Submitting to MCP marketplaces** (the user has to do this — listings are in `docs/mcp/marketplace-listings.md`). Submission order in the doc: Anthropic + Cursor + third-party indexes first, then HN post 1–2 weeks later, OpenAI Apps SDK when GA.
+- **Subscription billing** — Stripe integration, per-tier quotas, `/pricing` page, `/settings/billing` page. Probably 2 days of work; required before charging customers.
+- **Multi-user mode (BLOCK-5)** — must be settled before subscription launch.
+- **`ENCRYPTION_KEY` env var (BLOCK-3)** — must be set before paid customers, or rotating the DB password silently breaks every encrypted setting.
+- 20 routes still on legacy `getUserId` (catalogued in `LEGACY_GET_USER_ID` in the route-invariants test). Cosmetic.
+- Owner blockers BLOCK-1, 2, 4, 6, 7 still pending.
 - [ ] #N1 Mind Marketplace.
 
 Phases 5: see `PRODUCTION_READINESS.md`.
