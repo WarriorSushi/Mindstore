@@ -1,0 +1,90 @@
+# MindStore self-host compose file.
+#
+# Brings up everything needed to run MindStore on your own server:
+#
+#   - postgres (with pgvector extension)
+#   - mindstore (the Next.js app)
+#
+# Quickstart:
+#
+#   1. cp .env.example .env
+#   2. Edit .env: at minimum set ENCRYPTION_KEY and AUTH_SECRET
+#      to random 32-character strings. Pick a strong DB_PASSWORD.
+#   3. docker compose up -d
+#   4. Open http://localhost:3000
+#
+# By default this runs in single-user mode (no auth required).
+# To enable Google OAuth, set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+# and ALLOW_SINGLE_USER_MODE=false in .env.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mindstore
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: mindstore
+    volumes:
+      - mindstore_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindstore"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Don't expose Postgres to the host by default — only internal
+    # network. Uncomment the next two lines if you need direct DB
+    # access from the host (e.g., for psql or external backups).
+    # ports:
+    #   - "5432:5432"
+
+  mindstore:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Connection to the bundled postgres. The pgvector image already
+      # has the extension available; the migrate step on container
+      # start enables it.
+      DATABASE_URL: postgres://mindstore:${DB_PASSWORD:-changeme}@postgres:5432/mindstore
+
+      # Encryption + auth (REQUIRED — generate with `openssl rand -hex 32`)
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env to a random 32+ character string}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env to a random 32+ character string}
+
+      # Single-user mode by default. Flip to false + add Google OAuth
+      # creds to enable multi-user.
+      ALLOW_SINGLE_USER_MODE: ${ALLOW_SINGLE_USER_MODE:-true}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL:-http://localhost:3000}
+
+      # AI providers — at least one needed for chat / embeddings.
+      # Either set platform-side env vars here OR leave blank and
+      # paste keys via the in-app Settings page (encrypted at rest
+      # with ENCRYPTION_KEY).
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+
+      # Optional: bundled-AI mode (subscription billing requires it).
+      # If you're not running this as a paid SaaS, leave blank and
+      # users will use BYO keys.
+      MINDSTORE_AI_GATEWAY_KEY: ${MINDSTORE_AI_GATEWAY_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_PERSONAL: ${STRIPE_PRICE_PERSONAL:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+
+      # Bind to all interfaces (default 0.0.0.0); the container is
+      # the only thing exposing port 3000 anyway.
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "${MINDSTORE_PORT:-3000}:3000"
+
+volumes:
+  mindstore_pgdata:

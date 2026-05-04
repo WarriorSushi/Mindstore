@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
     tsconfigPath: isProd ? "tsconfig.build.json" : "tsconfig.json",
   },
 
+  // Standalone output — produces a small self-contained bundle the
+  // Dockerfile copies into the runtime stage. Vercel ignores this and
+  // produces its own output; locally `next build` writes
+  // .next/standalone/server.js which the Docker runtime CMD launches.
+  output: "standalone",
+
   /* ─── Performance: Core Web Vitals ─── */
   compress: true,
   poweredByHeader: false,
