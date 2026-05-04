@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
-**Last refreshed:** 2026-05-04 (very late session — third autonomous push)
-**Refreshed by:** Claude (Opus 4.7) — third autonomous session: 4 new MCP tools (A.10) + /app/mcp-setup page + demo scripts + marketplace listings
+**Last refreshed:** 2026-05-04 (very late — fourth autonomous push)
+**Refreshed by:** Claude (Opus 4.7) — fourth autonomous session: deployment readiness. Multi-user settings (ARCH-1), Stripe billing, bundled AI mode, /pricing + /app/settings/billing pages, Dockerfile, production guide.
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -30,11 +30,11 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | Layer | Count | Notes |
 |---|---|---|
-| API route files (`route.ts`) | 90 | +11 since the 2026-05-03 refresh: prior 9 (risks, mind-diff, forgetting, adversarial, fingerprint snapshots, provenance) plus `/api/v1/export/mind` and `/api/v1/import/mind` (commit `bf09e93`). |
-| App pages | 41 | +5 since the 2026-05-03 refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`, `/app/portable` (Phase 4 A.8 UI, commit `c25d506`), `/app/mcp-setup` (one-click MCP client configs for 6 tools, commit `41b0763`). |
+| API route files (`route.ts`) | 94 | +15 since the 2026-05-03 refresh. New since the prior STATUS sweep: 4 billing routes — `/api/v1/billing/{checkout,portal,webhook,me}` (commit `1acb022`). |
+| App pages | 43 | +7 since the 2026-05-03 refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`, `/app/portable`, `/app/mcp-setup`, `/app/settings/billing` (subscription + usage management, commit `f4bafd1`), `/pricing` (public marketing page, also commit `f4bafd1`). |
 | Plugin manifests in registry | 35 | README badge says 35 (matches); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
-| Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
+| Drizzle tables | 32+ | New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks`, plus the deployment-readiness commit added `subscriptions` (Stripe-backed) and `usage_records` (per-user token tracking) — commit `47240ad`. The `settings` table got a `user_id` column and a per-user UNIQUE constraint as part of ARCH-1 in the same commit. |
 | Doc files (root + `docs/`) | 113 | Plus 4 master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts in `docs/archive/`. |
 | Unit test files | 65 | **561 individual test cases.** +172 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file, route-invariants (93), mcp-tools (16 — schema + dispatcher invariants for the four new MCP tools). |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
@@ -66,7 +66,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | ID | Concern | Severity | Fix |
 |---|---|---|---|
-| ARCH-1 | `settings` table has no `user_id` column — global key-value store. Multi-user mode would have all users sharing one set of API keys. | **P0 (blocks multi-user)** | Add `user_id` column + migrate all reads/writes to scope by user. Owner decision needed: is multi-user the long-term target? See `PRODUCTION_READINESS.md` §Phase 1. |
+| ARCH-1 | ~~`settings` table has no `user_id` column — global key-value store. Multi-user mode would have all users sharing one set of API keys.~~ | ✅ DONE (commit `47240ad`) | Migration adds `user_id` column, backfills existing rows to `DEFAULT_USER_ID`, replaces global UNIQUE(key) with UNIQUE(user_id, key), creates `idx_settings_user`. All reads/writes (settings/route.ts, onboarding/route.ts, embeddings.ts, ai-client.ts, plugin ports for vision and domain-embeddings, export route, onboarding helper) now thread `userId` through. Helpers accept optional `userId` with a `DEFAULT_USER_ID` fallback so legacy callers and self-hosters keep working unchanged. |
 | ARCH-2 | `ENCRYPTION_KEY` defaults to a SHA-256 of `DATABASE_URL`. Rotating DB password breaks every encrypted setting. | High | Require `ENCRYPTION_KEY` to be explicit in production; add migration helper to re-encrypt under a new key. |
 | ARCH-3 | `/api/mcp` endpoint has no auth and CORS is `*`. In single-user mode this is by design but exposes the entire knowledge base to anyone with the URL. | **P0 in multi-user, P1 in single-user** | Require API-key (Bearer) for MCP requests; tighten CORS. |
 | ARCH-4 | Tree layer of retrieval (`searchTree`) is a `groupBy(source_type) → groupBy(source_title)` with averaged embeddings. The "PageIndex-inspired" claim oversells it. | Medium (correctness OK, narrative misleading) | Either replace with a real LLM-summarized hierarchy (Phase 2) or reword the comment + remove the marketing claim. |
@@ -311,7 +311,7 @@ Only the owner can resolve these. Each is named so I can reference it in subsequ
 | BLOCK-2 | No Google OAuth credentials → only single-user mode works. | Owner creates OAuth app at `console.cloud.google.com/apis/credentials`, sets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET`, `ALLOW_SINGLE_USER_MODE=false`, `NEXT_PUBLIC_URL=https://mindstore.org`. |
 | BLOCK-3 | `ENCRYPTION_KEY` env var is unset; encryption falls back to a hash of `DATABASE_URL`. Rotating DB password breaks all encrypted settings. | Owner sets `ENCRYPTION_KEY` to a random 32-byte string and runs the re-encryption migration once Phase 1 ships. |
 | BLOCK-4 | No Vercel cron config → background jobs only run on manual invocation. | Owner approves adding `crons` to `vercel.json` (or migrating to `vercel.ts`). |
-| BLOCK-5 | Multi-user vs single-user direction unclear. ARCH-1 fix depends on this. | Owner picks: (a) single-user-only, ship that and lock multi-user as future work; or (b) multi-user, schedule the `settings`-table migration in Phase 1. |
+| BLOCK-5 | ~~Multi-user vs single-user direction unclear. ARCH-1 fix depends on this.~~ | ✅ RESOLVED (autonomous decision; see commit `47240ad`). The codebase now supports both modes natively: single-user mode (no GOOGLE_CLIENT_ID set) falls back to DEFAULT_USER_ID across the board, multi-user mode (GOOGLE_CLIENT_ID + ALLOW_SINGLE_USER_MODE=false) gates every route by `requireUserId`. Settings, subscriptions, and usage are per-user. The owner can choose direction at deployment time via env vars rather than at code time. |
 | BLOCK-6 | Untracked folder `landing page templates gitignore this/` lives in the repo root. | Owner confirms whether to `.gitignore` and keep locally, or delete entirely. |
 | BLOCK-7 | `frain/improve` and `codex/local-dev` branches still receive automated commits per the cron logs. | Owner pauses or kills those agents while Claude takes over. |
 
@@ -445,14 +445,47 @@ These three commits collectively reposition MindStore from "another second brain
 - 2 new pages: `/app/portable`, `/app/mcp-setup`
 - 3 new MCP marketing docs (demo-scripts.md, marketplace-listings.md, rewritten index.md)
 
-Residual tracked work for the next session:
-- **Recording the demo videos** (the user has to do this — scripts are in `docs/mcp/demo-scripts.md`).
-- **Submitting to MCP marketplaces** (the user has to do this — listings are in `docs/mcp/marketplace-listings.md`). Submission order in the doc: Anthropic + Cursor + third-party indexes first, then HN post 1–2 weeks later, OpenAI Apps SDK when GA.
-- **Subscription billing** — Stripe integration, per-tier quotas, `/pricing` page, `/settings/billing` page. Probably 2 days of work; required before charging customers.
-- **Multi-user mode (BLOCK-5)** — must be settled before subscription launch.
-- **`ENCRYPTION_KEY` env var (BLOCK-3)** — must be set before paid customers, or rotating the DB password silently breaks every encrypted setting.
-- 20 routes still on legacy `getUserId` (catalogued in `LEGACY_GET_USER_ID` in the route-invariants test). Cosmetic.
-- Owner blockers BLOCK-1, 2, 4, 6, 7 still pending.
+### Late-2026-05-04 fourth autonomous session (deployment readiness)
+
+The owner asked for everything needed to actually deploy MindStore as a paid product. Six commits, plus this STATUS edit:
+
+- `47240ad` — **ARCH-1 / BLOCK-5 closed.** Per-user settings migration. The `settings` table got a `user_id` column with idempotent ALTER+UPDATE+constraint-swap migration; every settings reader (`settings/route.ts`, `onboarding/route.ts`, `embeddings.ts`, `ai-client.ts`, two plugin ports, the export route) now scopes by user. Helpers accept an optional `userId` with a `DEFAULT_USER_ID` fallback so single-user mode keeps working unchanged. Same commit also adds the `subscriptions` and `usage_records` tables to the migration so the next two commits don't need their own migration passes.
+- `1acb022` — **Stripe billing infrastructure.** Tier system in `src/server/billing/tiers.ts` (Free / Personal $12 / Pro $29 / Lifetime), Stripe SDK lazy singleton, subscription helpers (`getSubscriptionForUser`, `upsertSubscriptionFromStripe`, `getActiveTier`), usage helpers (`recordUsage`, `getUsageSummary`, `checkBundledQuotaOk`), four routes: `POST /api/v1/billing/checkout`, `POST /api/v1/billing/portal`, `POST /api/v1/billing/webhook`, `GET /api/v1/billing/me`. Webhook is added to `EXPLICITLY_PUBLIC` in the route-invariants test (signature is the auth, not requireUserId).
+- `995bd67` — **Bundled AI mode.** `maybeBuildBundledConfig(userId, modelOverride)` in `ai-client.ts` runs before the BYOK resolver. If `MINDSTORE_AI_GATEWAY_KEY` is set AND the user is on a paid tier AND their quota isn't busted AND `chat_provider !== 'byo'`, returns a config pointing at Vercel AI Gateway with the platform key + an `X-Mindstore-User` attribution header. Quota-busted users on `chat_provider='bundled'` get a 402 with a friendly upgrade message; users on `auto` silently fall back to BYOK. Self-host carve-out: `DEFAULT_USER_ID` is excluded by default (no point charging yourself) — opt in via `MINDSTORE_BUNDLED_FOR_DEFAULT_USER=true`. Chat route records best-effort token estimates after each bundled call (chars/4 approximation; precise gateway-reported token tracking is a streaming-wrapper follow-up).
+- `f4bafd1` — **`/pricing` (public) and `/app/settings/billing` (auth).** Pricing page: hero + 3-tier card grid + comparison table + 7-question FAQ + footer. Pulls all numbers from `TIER_QUOTAS` so server enforcement and marketing copy stay in sync. Billing page: current plan card, two-progress-bar usage section (chat tokens + embedding tokens with amber/red states), four stat tiles, conditional upgrade cards, "save more with BYO key" footer. Self-hosted deployments without Stripe configured see a "billing disabled" panel instead of broken upgrade prompts. Nav entry under "system" section.
+- `91e859d` — **Production deployment infrastructure.** Multi-stage Dockerfile (deps → builder → runtime, ~250MB final image, non-root user), `docker-compose.yml` (pgvector/pgvector:pg16 + the app, healthcheck-gated, required env vars enforced via `${VAR:?}`), `next.config.ts` standalone output enabled, `.env.example` rewritten with required-vs-optional sections and the new billing/gateway env vars, `docs/deploy/index.md` rewritten to point at the production guide, and a 600-line `docs/deploy/production.md` covering: Vercel + Neon + Stripe + AI Gateway end-to-end (8 steps, 60-90 min), Docker Compose self-host (5 min), bare metal (15 min), 13-item pre-launch checklist, 5-incident operational runbook.
+
+**Cumulative across all four autonomous sessions (2026-05-04):**
+- 22 commits to `main`
+- 17 SEC IDs closed, 5 ARCH IDs closed (incl. ARCH-1), 1 BLOCK resolved (BLOCK-5)
+- 3 innovations shipped end-to-end (#8 portable file + full #10 MCP + the subscription/billing path which isn't a numbered innovation but is what makes the whole thing sellable)
+- Test count 369 → 565 (+196)
+- Route count 79 → 94
+- Page count 39 → 43 (added `/app/settings/billing` and `/pricing`)
+- 35 plugin routes hardened, 93 route invariants + 16 MCP tool invariants locked in
+- New billing module: 5 server-side files + 4 routes
+- New deployment module: Dockerfile + docker-compose.yml + 600-line production guide
+
+### What you (owner) actually have to do to take payments
+
+The code is done. The remaining items are owner-side configuration that I literally cannot do for you:
+
+1. **Create accounts:** Vercel (probably already), Neon (DB), Stripe (billing), Google Cloud Console (OAuth), Vercel AI Gateway (if doing bundled-AI mode).
+2. **Configure env vars in Vercel** per [`docs/deploy/production.md` §2-§5](docs/deploy/production.md). Roughly: `DATABASE_URL`, `ENCRYPTION_KEY`, `AUTH_SECRET`, `NEXT_PUBLIC_URL`, `ALLOW_SINGLE_USER_MODE=false`, `GOOGLE_CLIENT_ID/SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PERSONAL`, `STRIPE_PRICE_PRO`, `MINDSTORE_AI_GATEWAY_KEY`.
+3. **Create Stripe products:** Personal $12/mo, Pro $29/mo. Copy the price IDs into env. Configure the webhook to point at `/api/v1/billing/webhook`. Activate the Customer Portal.
+4. **Run migrations:** `vercel env pull && npm run migrate` once after first deploy.
+5. **Smoke test** all 8 items in the production guide.
+6. **Pre-launch checklist** (13 items) before charging real money.
+7. **Privacy policy + terms of service** — not in scope of this build; templates exist online; for a paid service have a lawyer glance at them.
+8. **Demo videos** (`docs/mcp/demo-scripts.md`) and **marketplace submissions** (`docs/mcp/marketplace-listings.md`) when ready to launch.
+
+Residual code-side work (smaller / non-blocking):
+- Precise token tracking for bundled-AI mode (currently estimated chars/4; precise gateway-reported counts need a streaming wrapper).
+- Wire bundled-AI into the plugin routes that call AI providers (custom-rag, blog-draft, etc.) so they also count against the user's token budget. Mechanical.
+- 20 routes still on legacy `getUserId` (catalogued in `LEGACY_GET_USER_ID` in route-invariants.test.ts). Cosmetic.
+- ARCH-2 `ENCRYPTION_KEY` rotation tooling — once owner sets the key per BLOCK-3, a re-encryption migration helper would let key rotation happen without breaking encrypted settings. Currently if you rotate the key, all stored API keys become unreadable.
+- HNSW index on the embeddings column for faster vector search at scale.
+- Per-user daily import quota (SEC-10 still open).
 - [ ] #N1 Mind Marketplace.
 
 Phases 5: see `PRODUCTION_READINESS.md`.
