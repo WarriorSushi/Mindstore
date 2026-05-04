@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
-**Last refreshed:** 2026-05-03
-**Refreshed by:** Claude (Opus 4.7) during the takeover audit
+**Last refreshed:** 2026-05-04
+**Refreshed by:** Claude (Opus 4.7) — mid-Phase-2/3/4 sweep after six innovations shipped to `main`
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -12,13 +12,13 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 ## 0. Top-of-page health
 
-| Indicator | Status (2026-05-03) | Notes |
+| Indicator | Status (2026-05-04) | Notes |
 |---|---|---|
-| `node_modules` installed | ✅ Installed | Verified by Phase 0 security tests (`npx vitest run` reports 369 passing). |
-| `npm run typecheck` | ✅ Passing | Verified clean during Phase 0 security fix landing. |
-| `npm test` | ✅ 369 / 369 | 54 test files; 24 new tests in `tests/unit/security-phase0/` (7 files) cover SEC-1..SEC-7 + Gemini RETRIEVAL_QUERY. |
+| `node_modules` installed | ✅ Installed | Verified locally (`npx vitest run` reports 441 passing). |
+| `npm run typecheck` | ✅ Passing | Last verified at the Phase 0 closure; not re-run after Phase 2/3/4 commits — re-verify before next merge. |
+| `npm test` | ✅ 441 / 441 | 62 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (16), attribution (8), plus other increments. |
 | `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
-| `npm run build` | ✅ Passing | Clean Next.js 16 production build verified post-Phase-0. |
+| `npm run build` | ✅ Passing | Last verified at Phase 0 closure; re-verify before next merge given the `src/server/mind-file/` work is untracked. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
 | MCP endpoint | ✅ Reachable at `/api/mcp` | Now Bearer-auth-required (SEC-6 closed). Single-user mode falls through when no bearer is present; invalid bearer is rejected. |
 | CI configuration | ✅ Present | `.github/workflows/ci.yml` (lint→typecheck→test→build→playwright) and `dco.yml` (DCO sign-off check). Both updated to accept `claude/**` branches and Node 24. |
@@ -30,13 +30,13 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | Layer | Count | Notes |
 |---|---|---|
-| API route files (`route.ts`) | 79 | +2 from Phase 2: `/api/v1/metabolism/{current,history}`. |
-| App pages | 40 | +1 from Phase 2: `/app/metabolism`. |
-| Plugin manifests in registry | 35 | README badge says 35 (matches now); a counter elsewhere said 33 (line-count regex mismatch). |
+| API route files (`route.ts`) | 88 | +9 since the prior refresh: `/api/v1/risks` (+2), `/api/v1/mind-diff`, `/api/v1/forgetting/{at-risk,review}`, `/api/v1/search/adversarial`, `/api/v1/fingerprint/snapshots` (+2), `/api/v1/memories/[id]/provenance`. |
+| App pages | 39 | +3 since the prior refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`. (Counted via `find src/app/app -name page.tsx`; the 40 in the prior refresh was a count error — corrected here.) |
+| Plugin manifests in registry | 35 | README badge says 35 (matches); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
-| Drizzle tables | 30+ | See `src/server/schema.ts`. |
-| Doc files (root + `docs/`) | 113 | Plus 4 new master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts moved to `docs/archive/`. |
-| Unit test files | 56 | **389 individual test cases.** +9 SafeFetch + 11 metabolism on top of the Phase-0 baseline. |
+| Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
+| Doc files (root + `docs/`) | 113 | Plus 4 master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts in `docs/archive/`. |
+| Unit test files | 62 | **441 individual test cases.** +52 since prior refresh, distributed across 6 new test files for fingerprint snapshots, adversarial retrieval, mind-diff, forgetting, risks-scanner, and attribution. |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -213,7 +213,11 @@ Codes:
 | `/app/settings` | PRODUCTION | — |
 | `/app/plugins` | PRODUCTION | — |
 | `/app/onboarding` | WORKS | ORPHAN-by-design |
-| `/app/metabolism` | PRODUCTION | NEW (Phase 2 A.9) |
+| `/app/metabolism` | PRODUCTION | Phase 2 A.9 (commit `c0cc2b2`) |
+| `/app/fingerprint` (snapshots additions) | PRODUCTION | Phase 2 A.2 (commit `d791c83`) added snapshot history UI |
+| `/app/mind-diff` | PRODUCTION | NEW Phase 2 A.5 (commit `5102ffc`) |
+| `/app/forgetting` | PRODUCTION | NEW Phase 3 A.4 (commit `7d194d8`) |
+| `/app/security` | PRODUCTION | NEW Phase 4 B.2 (commit `0802dc3`) |
 
 **Page-state work remaining:**
 - A11Y on `/app/explore`, `/app/blog`, `/app/gaps` and a general icon-only-button sweep.
@@ -228,25 +232,27 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | # | Innovation | Status | Phase target |
 |---|---|---|---|
 | 1 | Memory Consolidation Engine | scaffold | 2 |
-| 2 | Knowledge Fingerprint | shipped (polish only) | 2 (snapshots/diffs) |
-| 3 | Adversarial Retrieval | absent | 2 |
-| 4 | Forgetting Curve (whole base) | partial | 3 |
-| 5 | Mind Diff | partial | 2 |
+| 2 | Knowledge Fingerprint | ✅ shipped + snapshots (Phase 2, commit `d791c83`) | — |
+| 3 | Adversarial Retrieval | ✅ shipped (Phase 2, commit `1e9bfdf`) | — |
+| 4 | Forgetting Curve (whole base) | ✅ shipped (Phase 3, commit `7d194d8`) | — |
+| 5 | Mind Diff | ✅ shipped (Phase 2, commit `5102ffc`) | — |
 | 6 | Cross-Pollination Engine | partial | 2 |
 | 7 | Thought Threading | absent | 3 |
-| 8 | `.mind` Portable File | absent (spec exists) | 4 |
+| 8 | `.mind` Portable File | 🟡 IN FLIGHT — `src/server/mind-file/{writer,reader,merger}.ts` present locally, untracked. Format `mindstore.mind/1.0`: ZIP with manifest + memories.jsonl + embeddings.bin + tree_index + connections + profile. Streamed to HTTP response (no Blob dependency). No API route or page wired yet. | 4 |
 | 9 | Knowledge Metabolism Score | ✅ shipped (Phase 2, commit `c0cc2b2`) | — |
 | 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
 | N1 | Mind Marketplace | absent | 4 |
-| N2 | Knowledge Attack Surface | absent | 4 |
+| N2 | Knowledge Attack Surface | ✅ shipped (Phase 4, commit `0802dc3`) | — |
 | N3 | Knowledge Oracle | absent | 5 |
 | N4 | Mind Scheduler | absent | 5 |
 | N5 | Knowledge Genealogy | absent | 3 |
 | N6 | Vercel Workflows backbone | absent | 5 (continuous) |
 | N7 | Memory Journals | absent | 3 |
 | N8 | Knowledge Diffusion | absent | 3 |
-| N9 | Memory Audit Trail | absent | 4 |
+| N9 | Memory Audit Trail | ✅ shipped (Phase 4, commit `81f0447`) | — |
 | N10 | Mind Coaching | absent | 5 |
+
+**Progress tally:** 8 of 20 innovations shipped (#2, #3, #4, #5, #9, #10, #N2, #N9). 1 in flight locally (#8). 11 absent or partial.
 
 ---
 
@@ -347,7 +353,32 @@ Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 - BLOCK-1, 2 (provider keys + OAuth) — owner-only.
 - BLOCK-7 — pause the existing `Frain` cron / `codex` automated commits.
 
-Phases 2-5: see `PRODUCTION_READINESS.md`.
+### Phase 2 — Innovation wave 1 — IN FLIGHT (5 of N landed)
+
+- [x] A.2 Knowledge Fingerprint snapshots — `src/server/fingerprint/snapshot.ts`, two API routes, schema additions. Commit `d791c83`.
+- [x] A.3 Adversarial Retrieval — `src/server/retrieval-adversarial.ts`, `/api/v1/search/adversarial`. Commit `1e9bfdf`.
+- [x] A.5 Mind Diff — `src/server/mind-diff/compare.ts`, `/api/v1/mind-diff`, `/app/mind-diff` page. Commit `5102ffc`.
+- [x] A.9 Knowledge Metabolism Score — first wave-1 deliverable. Commit `c0cc2b2`.
+- [x] Mid-flight STATUS sweep closing ARCH-14 + A11Y + WebGL. Commit `7ab5869`.
+- [ ] #1 Memory Consolidation Engine (still scaffold).
+- [ ] #6 Cross-Pollination Engine (still partial).
+
+### Phase 3 — Innovation wave 2 — STARTED
+
+- [x] A.4 Forgetting Curve over the whole knowledge base — `src/server/forgetting/scorer.ts`, two API routes, `/app/forgetting` page. Commit `7d194d8`.
+- [ ] #7 Thought Threading.
+- [ ] #N5 Knowledge Genealogy.
+- [ ] #N7 Memory Journals.
+- [ ] #N8 Knowledge Diffusion.
+
+### Phase 4 — Innovation wave 3 — STARTED (out-of-order, ahead of plan)
+
+- [x] B.2 Knowledge Attack Surface — `src/server/risks/scanner.ts`, two API routes, `/app/security` page. Commit `0802dc3`.
+- [x] B.9 Memory Audit Trail — `src/server/attribution/citations.ts`, provenance API route. Commit `81f0447`.
+- [🟡] A.8 `.mind` Portable File — local working copy under `src/server/mind-file/{writer,reader,merger}.ts`, **untracked**. No route or page wired. Needs: API route(s), import/export UI, Vercel Blob integration decision (storage-agnostic format already chosen, so wiring is a runtime change), tests.
+- [ ] #N1 Mind Marketplace.
+
+Phases 5: see `PRODUCTION_READINESS.md`.
 
 ---
 
