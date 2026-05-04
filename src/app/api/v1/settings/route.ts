@@ -30,14 +30,17 @@ interface SettingRow {
 export async function GET() {
   const auth = await requireUserId();
   if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
   try {
     const settings = await db.execute(
-      sql`SELECT key, value FROM settings WHERE key IN (
-        'openai_api_key', 'gemini_api_key', 'ollama_url',
-        'openrouter_api_key', 'custom_api_key', 'custom_api_url', 'custom_api_model',
-        'embedding_provider', 'chat_provider', 'chat_model'
-      )`
+      sql`SELECT key, value FROM settings
+          WHERE user_id = ${userId}::uuid
+            AND key IN (
+              'openai_api_key', 'gemini_api_key', 'ollama_url',
+              'openrouter_api_key', 'custom_api_key', 'custom_api_url', 'custom_api_model',
+              'embedding_provider', 'chat_provider', 'chat_model'
+            )`
     );
 
     const config: Record<string, string> = {};
@@ -165,6 +168,7 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
 export async function POST(req: NextRequest) {
   const auth = await requireUserId();
   if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
   const limited = applyRateLimit(req, 'settings', RATE_LIMITS.write);
   if (limited) return limited;
@@ -176,11 +180,13 @@ export async function POST(req: NextRequest) {
 
   try {
     if (body.action === 'remove') {
-      await db.execute(sql`DELETE FROM settings WHERE key IN (
-        'openai_api_key', 'gemini_api_key', 'ollama_url',
-        'openrouter_api_key', 'custom_api_key', 'custom_api_url', 'custom_api_model',
-        'embedding_provider'
-      )`);
+      await db.execute(sql`DELETE FROM settings
+        WHERE user_id = ${userId}::uuid
+          AND key IN (
+            'openai_api_key', 'gemini_api_key', 'ollama_url',
+            'openrouter_api_key', 'custom_api_key', 'custom_api_url', 'custom_api_model',
+            'embedding_provider'
+          )`);
       return NextResponse.json({ ok: true, message: 'All keys removed' });
     }
 
@@ -194,7 +200,7 @@ export async function POST(req: NextRequest) {
       } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid OpenAI API key' }, { status: 400 });
       }
-      await upsertSetting('openai_api_key', key);
+      await upsertSetting(userId, 'openai_api_key', key);
     }
 
     if (body.geminiKey) {
@@ -207,11 +213,11 @@ export async function POST(req: NextRequest) {
       } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid Gemini API key' }, { status: 400 });
       }
-      await upsertSetting('gemini_api_key', key);
+      await upsertSetting(userId, 'gemini_api_key', key);
     }
 
     if (body.ollamaUrl) {
-      await upsertSetting('ollama_url', body.ollamaUrl.trim());
+      await upsertSetting(userId, 'ollama_url', body.ollamaUrl.trim());
     }
 
     if (body.openrouterKey) {
@@ -224,32 +230,32 @@ export async function POST(req: NextRequest) {
       } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid OpenRouter API key' }, { status: 400 });
       }
-      await upsertSetting('openrouter_api_key', key);
+      await upsertSetting(userId, 'openrouter_api_key', key);
     }
 
     if (body.customApiKey !== undefined || body.customApiUrl !== undefined || body.customApiModel !== undefined) {
-      if (body.customApiKey) await upsertSetting('custom_api_key', body.customApiKey.trim());
-      if (body.customApiUrl) await upsertSetting('custom_api_url', body.customApiUrl.trim());
-      if (body.customApiModel) await upsertSetting('custom_api_model', body.customApiModel.trim());
+      if (body.customApiKey) await upsertSetting(userId, 'custom_api_key', body.customApiKey.trim());
+      if (body.customApiUrl) await upsertSetting(userId, 'custom_api_url', body.customApiUrl.trim());
+      if (body.customApiModel) await upsertSetting(userId, 'custom_api_model', body.customApiModel.trim());
     }
 
     if (body.embeddingProvider) {
-      await upsertSetting('embedding_provider', body.embeddingProvider);
+      await upsertSetting(userId, 'embedding_provider', body.embeddingProvider);
     }
 
     if (body.chatProvider) {
       if (body.chatProvider === 'auto') {
-        await db.execute(sql`DELETE FROM settings WHERE key = 'chat_provider'`);
+        await db.execute(sql`DELETE FROM settings WHERE user_id = ${userId}::uuid AND key = 'chat_provider'`);
       } else {
-        await upsertSetting('chat_provider', body.chatProvider);
+        await upsertSetting(userId, 'chat_provider', body.chatProvider);
       }
     }
 
     if (body.chatModel !== undefined) {
       if (!body.chatModel || body.chatModel === 'default') {
-        await db.execute(sql`DELETE FROM settings WHERE key = 'chat_model'`);
+        await db.execute(sql`DELETE FROM settings WHERE user_id = ${userId}::uuid AND key = 'chat_model'`);
       } else {
-        await upsertSetting('chat_model', body.chatModel);
+        await upsertSetting(userId, 'chat_model', body.chatModel);
       }
     }
 
@@ -327,11 +333,12 @@ const SENSITIVE_KEYS = new Set([
   'custom_api_key',
 ]);
 
-async function upsertSetting(key: string, value: string) {
+async function upsertSetting(userId: string, key: string, value: string) {
   const storedValue = SENSITIVE_KEYS.has(key) ? encrypt(value) : value;
   await db.execute(sql`
-    INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${storedValue}, NOW())
-    ON CONFLICT (key) DO UPDATE SET value = ${storedValue}, updated_at = NOW()
+    INSERT INTO settings (user_id, key, value, updated_at)
+    VALUES (${userId}::uuid, ${key}, ${storedValue}, NOW())
+    ON CONFLICT (user_id, key) DO UPDATE SET value = ${storedValue}, updated_at = NOW()
   `);
 }
 

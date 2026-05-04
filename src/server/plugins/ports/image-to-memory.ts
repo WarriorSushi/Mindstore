@@ -187,10 +187,13 @@ export interface VisionConfig {
   url?: string;
 }
 
-export async function getVisionConfig(): Promise<VisionConfig | null> {
+export async function getVisionConfig(userId?: string): Promise<VisionConfig | null> {
+  const { DEFAULT_USER_ID } = await import('@/server/identity');
+  const effectiveUserId = userId ?? DEFAULT_USER_ID;
   const settings = await db.execute(sql`
     SELECT key, value FROM settings
-    WHERE key IN ('openai_api_key','gemini_api_key','ollama_url','openrouter_api_key','custom_api_key','custom_api_url','chat_provider')
+    WHERE user_id = ${effectiveUserId}::uuid
+      AND key IN ('openai_api_key','gemini_api_key','ollama_url','openrouter_api_key','custom_api_key','custom_api_url','chat_provider')
   `);
   const c: Record<string, string> = {};
   for (const row of settings as unknown as { key: string; value: string }[]) {

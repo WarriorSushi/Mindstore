@@ -95,13 +95,25 @@ export function decodeAISettingValue(key: string, value: string): string {
   return decrypt(value);
 }
 
+/**
+ * Load the user's AI-related settings.
+ *
+ * `userId` is optional for the same reason as in `getEmbeddingConfig`:
+ * legacy callers that haven't been threaded yet fall back to the
+ * default user. New callers should pass `userId` explicitly.
+ */
 export async function loadAISettings(
   keys: readonly string[] = TEXT_SETTING_KEYS,
+  userId?: string,
 ): Promise<Record<string, string>> {
+  const { DEFAULT_USER_ID } = await import('./identity');
+  const effectiveUserId = userId ?? DEFAULT_USER_ID;
+
   const rows = await db.execute(sql`
     SELECT key, value
     FROM settings
-    WHERE key = ANY(${keys}::text[])
+    WHERE user_id = ${effectiveUserId}::uuid
+      AND key = ANY(${keys}::text[])
   `);
 
   const settings: Record<string, string> = {};
@@ -235,16 +247,16 @@ export function resolveTextGenerationConfigFromSettings(
   return null;
 }
 
-export async function getTextGenerationConfig(defaults: AITextDefaults = {}) {
+export async function getTextGenerationConfig(defaults: AITextDefaults = {}, userId?: string) {
   return resolveTextGenerationConfigFromSettings(
-    await loadAISettings(TEXT_SETTING_KEYS),
+    await loadAISettings(TEXT_SETTING_KEYS, userId),
     defaults,
   );
 }
 
-export async function getStreamingTextGenerationConfig(modelOverride?: string) {
+export async function getStreamingTextGenerationConfig(modelOverride?: string, userId?: string) {
   return resolveTextGenerationConfigFromSettings(
-    await loadAISettings(TEXT_SETTING_KEYS),
+    await loadAISettings(TEXT_SETTING_KEYS, userId),
     {},
     modelOverride,
   );

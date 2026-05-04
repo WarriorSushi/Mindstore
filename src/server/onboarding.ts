@@ -43,9 +43,12 @@ export async function getOnboardingState(userId: string): Promise<OnboardingStat
       FROM memories WHERE user_id = ${userId}::uuid
     `),
     db.execute(sql`
-      SELECT key FROM settings WHERE key IN (
-        'openai_api_key', 'gemini_api_key', 'ollama_url', 'openrouter_api_key', 'custom_api_key'
-      ) LIMIT 1
+      SELECT key FROM settings
+      WHERE user_id = ${userId}::uuid
+        AND key IN (
+          'openai_api_key', 'gemini_api_key', 'ollama_url', 'openrouter_api_key', 'custom_api_key'
+        )
+      LIMIT 1
     `),
   ]);
 

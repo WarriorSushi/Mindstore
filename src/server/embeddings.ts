@@ -9,6 +9,7 @@
 import { db } from './db';
 import { sql } from 'drizzle-orm';
 import { decrypt } from './encryption';
+import { DEFAULT_USER_ID } from './identity';
 
 export type EmbeddingProvider = 'openai' | 'gemini' | 'ollama';
 
@@ -19,11 +20,23 @@ interface EmbeddingConfig {
   model?: string;
 }
 
-// Get the best available embedding provider
-export async function getEmbeddingConfig(): Promise<EmbeddingConfig | null> {
-  // Check settings table for configured providers
-  const settings = await db.execute(sql`SELECT key, value FROM settings WHERE key IN ('openai_api_key', 'gemini_api_key', 'ollama_url', 'embedding_provider')`);
-  
+/**
+ * Get the best available embedding provider for a given user.
+ *
+ * `userId` is optional — when omitted, falls back to `DEFAULT_USER_ID`,
+ * which is correct for single-user / self-hosted deployments and for
+ * legacy callers we haven't threaded user-scoping through yet. New
+ * callers should pass `userId` explicitly so each user gets their own
+ * configured provider after the ARCH-1 multi-user settings migration.
+ */
+export async function getEmbeddingConfig(userId: string = DEFAULT_USER_ID): Promise<EmbeddingConfig | null> {
+  // Check settings table for configured providers (per-user since ARCH-1).
+  const settings = await db.execute(sql`
+    SELECT key, value FROM settings
+    WHERE user_id = ${userId}::uuid
+      AND key IN ('openai_api_key', 'gemini_api_key', 'ollama_url', 'embedding_provider')
+  `);
+
   const config: Record<string, string> = {};
   for (const row of settings as any[]) {
     // Decrypt API keys that may be encrypted at rest

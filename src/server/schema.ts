@@ -150,13 +150,53 @@ export const sessions = pgTable('sessions', {
   expires: timestamp('expires').notNull(),
 });
 
-// App settings (API keys, config)
+// App settings (API keys, config) — per-user as of ARCH-1.
+// Unique on (user_id, key); rows for the default user replace the
+// pre-migration global rows on existing deployments.
 export const settings = pgTable('settings', {
   id: uuid('id').defaultRandom().primaryKey(),
-  key: text('key').unique().notNull(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  key: text('key').notNull(),
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('settings_user_key_unique').on(table.userId, table.key),
+  index('idx_settings_user').on(table.userId),
+]);
+
+// Subscriptions — Stripe-backed, one row per user.
+export const subscriptions = pgTable('subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull().unique(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  tier: text('tier').notNull().default('free'), // 'free' | 'personal' | 'pro' | 'lifetime'
+  status: text('status').notNull().default('active'), // 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete'
+  currentPeriodStart: timestamp('current_period_start'),
+  currentPeriodEnd: timestamp('current_period_end'),
+  cancelAtPeriodEnd: integer('cancel_at_period_end').default(0),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('idx_subscriptions_stripe_customer').on(table.stripeCustomerId),
+  index('idx_subscriptions_stripe_sub').on(table.stripeSubscriptionId),
+]);
+
+// Usage records — granular per-user token tracking for the bundled AI mode.
+export const usageRecords = pgTable('usage_records', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  monthKey: text('month_key').notNull(),    // 'YYYY-MM'
+  kind: text('kind').notNull(),             // 'tokens-in' | 'tokens-out' | 'embedding-tokens' | 'requests'
+  provider: text('provider').notNull().default('gateway'), // 'gateway' | 'byo:openai' | etc.
+  amount: text('amount').notNull().default('0'), // bigint as text — pg driver-agnostic
+  costMicros: text('cost_micros').notNull().default('0'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  uniqueIndex('usage_records_unique').on(table.userId, table.monthKey, table.kind, table.provider),
+  index('idx_usage_user_month').on(table.userId, table.monthKey),
+]);
 
 // === PLUGIN SYSTEM ===
 

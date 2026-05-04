@@ -326,13 +326,16 @@ export async function ensureInstalled(): Promise<void> {
 }
 
 /** Check which AI providers are available from settings + env. */
-export async function getProviderAvailability(): Promise<{
+export async function getProviderAvailability(userId?: string): Promise<{
   providers: { openai: boolean; gemini: boolean; ollama: boolean };
   currentProvider: string;
 }> {
+  const { DEFAULT_USER_ID } = await import('@/server/identity');
+  const effectiveUserId = userId ?? DEFAULT_USER_ID;
   const settings = await db.execute(sql`
     SELECT key, value FROM settings
-    WHERE key IN ('openai_api_key', 'gemini_api_key', 'ollama_url', 'embedding_provider')
+    WHERE user_id = ${effectiveUserId}::uuid
+      AND key IN ('openai_api_key', 'gemini_api_key', 'ollama_url', 'embedding_provider')
   `);
   const config: Record<string, string> = {};
   for (const row of settings as any[]) config[row.key] = row.value;

@@ -261,15 +261,45 @@ async function migrate() {
     )
   `);
 
-  // Settings (server-side config storage)
+  // Settings (server-side config storage) — per-user as of ARCH-1.
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS settings (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      key TEXT UNIQUE NOT NULL,
+      key TEXT NOT NULL,
       value TEXT NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  // ARCH-1 migration: add user_id, backfill to default user, then
+  // replace the global UNIQUE(key) with UNIQUE(user_id, key). Idempotent
+  // — safe to run on a fresh DB (the column add succeeds), on a DB that
+  // never had the global constraint (no constraint to drop), and on a
+  // partially-migrated DB.
+  await db.execute(sql`ALTER TABLE settings ADD COLUMN IF NOT EXISTS user_id UUID`);
+  await db.execute(sql`
+    UPDATE settings SET user_id = ${DEFAULT_USER_ID}::uuid
+    WHERE user_id IS NULL
+  `);
+  await db.execute(sql`ALTER TABLE settings ALTER COLUMN user_id SET NOT NULL`);
+  // Drop old global UNIQUE(key) — name varies by Postgres version so we
+  // try the common variants. If none exist this no-ops.
+  await db.execute(sql`
+    DO $$ BEGIN
+      ALTER TABLE settings DROP CONSTRAINT settings_key_key;
+    EXCEPTION WHEN undefined_object THEN null; END $$
+  `);
+  await db.execute(sql`
+    DO $$ BEGIN
+      ALTER TABLE settings DROP CONSTRAINT settings_key_unique;
+    EXCEPTION WHEN undefined_object THEN null; END $$
+  `);
+  await db.execute(sql`
+    DO $$ BEGIN
+      ALTER TABLE settings ADD CONSTRAINT settings_user_key_unique UNIQUE (user_id, key);
+    EXCEPTION WHEN duplicate_object THEN null; END $$
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_settings_user ON settings (user_id)`);
 
   // Search history
   await db.execute(sql`
@@ -599,6 +629,59 @@ async function migrate() {
     VALUES (${DEFAULT_USER_ID}::uuid, ${DEFAULT_USER_EMAIL}, ${DEFAULT_USER_NAME})
     ON CONFLICT (email) DO NOTHING
   `);
+
+  // ─── Subscriptions (Stripe) ─────────────────────────────────────
+  // tier:
+  //   'free'     — no card on file, capped (default for new accounts)
+  //   'personal' — $12/mo, bundled tokens, full feature set
+  //   'pro'      — $29/mo, larger bundled tokens, priority support
+  //   'lifetime' — granted manually for special cases (founders, swaps)
+  // status:
+  //   'active' / 'trialing' / 'past_due' / 'canceled' / 'incomplete'
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      tier TEXT NOT NULL DEFAULT 'free',
+      status TEXT NOT NULL DEFAULT 'active',
+      current_period_start TIMESTAMPTZ,
+      current_period_end TIMESTAMPTZ,
+      cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions (stripe_customer_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions (stripe_subscription_id)`);
+
+  // ─── Usage records (per-user token + request tracking) ──────────
+  // Granular log of each platform-AI call so we can surface "you've
+  // used X% of your monthly tokens" and enforce caps without doing
+  // window aggregations on a huge table at request time.
+  // `month_key` is YYYY-MM so a covering UNIQUE index gives us cheap
+  // upserts per (user, month, kind, provider).
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS usage_records (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      month_key TEXT NOT NULL,
+      kind TEXT NOT NULL,                    -- 'tokens-in' | 'tokens-out' | 'embedding-tokens' | 'requests'
+      provider TEXT NOT NULL DEFAULT 'gateway', -- 'gateway' for bundled, 'byo:openai' / 'byo:gemini' / etc.
+      amount BIGINT NOT NULL DEFAULT 0,
+      cost_micros BIGINT NOT NULL DEFAULT 0, -- integer cost in micro-USD ($1.234 = 1234000), avoids float drift
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    DO $$ BEGIN
+      ALTER TABLE usage_records ADD CONSTRAINT usage_records_unique
+        UNIQUE (user_id, month_key, kind, provider);
+    EXCEPTION WHEN duplicate_object THEN null; END $$
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_usage_user_month ON usage_records (user_id, month_key)`);
 
   console.log('✅ Migration complete!');
   await client.end();

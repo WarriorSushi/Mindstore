@@ -24,17 +24,20 @@ interface SettingRow {
 export async function GET() {
   const auth = await requireUserId();
   if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
   try {
     const rows = await db.execute(
-      sql`SELECT key, value FROM settings WHERE key IN (
-        'onboarding_completed',
-        'onboarding_step',
-        'user_name',
-        'ai_provider_choice',
-        'openai_api_key', 'gemini_api_key', 'ollama_url',
-        'openrouter_api_key', 'custom_api_key'
-      )`
+      sql`SELECT key, value FROM settings
+          WHERE user_id = ${userId}::uuid
+            AND key IN (
+              'onboarding_completed',
+              'onboarding_step',
+              'user_name',
+              'ai_provider_choice',
+              'openai_api_key', 'gemini_api_key', 'ollama_url',
+              'openrouter_api_key', 'custom_api_key'
+            )`
     ) as unknown as SettingRow[];
 
     const config: Record<string, string> = {};
@@ -49,11 +52,11 @@ export async function GET() {
       process.env.OLLAMA_URL || process.env.OPENROUTER_API_KEY
     );
 
-    // Count memories
+    // Count memories (per-user)
     let memoryCount = 0;
     try {
       const countRes = await db.execute(
-        sql`SELECT COUNT(*)::int as count FROM memories`
+        sql`SELECT COUNT(*)::int as count FROM memories WHERE user_id = ${userId}::uuid`
       );
       memoryCount = (countRes as unknown as { count: number }[])[0]?.count || 0;
     } catch {
@@ -102,6 +105,7 @@ const OnboardingPostSchema = z.object({
 export async function POST(req: NextRequest) {
   const auth = await requireUserId();
   if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
   const limited = applyRateLimit(req, 'onboarding', RATE_LIMITS.write);
   if (limited) return limited;
@@ -111,19 +115,19 @@ export async function POST(req: NextRequest) {
 
   try {
     if (body.step !== undefined) {
-      await upsertSetting('onboarding_step', String(body.step));
+      await upsertSetting(userId, 'onboarding_step', String(body.step));
     }
 
     if (body.completed !== undefined) {
-      await upsertSetting('onboarding_completed', String(body.completed));
+      await upsertSetting(userId, 'onboarding_completed', String(body.completed));
     }
 
     if (body.userName !== undefined) {
-      await upsertSetting('user_name', body.userName.trim());
+      await upsertSetting(userId, 'user_name', body.userName.trim());
     }
 
     if (body.aiProviderChoice !== undefined) {
-      await upsertSetting('ai_provider_choice', body.aiProviderChoice);
+      await upsertSetting(userId, 'ai_provider_choice', body.aiProviderChoice);
     }
 
     return NextResponse.json({ ok: true });
@@ -133,9 +137,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function upsertSetting(key: string, value: string) {
+async function upsertSetting(userId: string, key: string, value: string) {
   await db.execute(sql`
-    INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${value}, NOW())
-    ON CONFLICT (key) DO UPDATE SET value = ${value}, updated_at = NOW()
+    INSERT INTO settings (user_id, key, value, updated_at)
+    VALUES (${userId}::uuid, ${key}, ${value}, NOW())
+    ON CONFLICT (user_id, key) DO UPDATE SET value = ${value}, updated_at = NOW()
   `);
 }

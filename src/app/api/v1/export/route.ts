@@ -46,7 +46,9 @@ export async function GET(req: NextRequest) {
         WHERE user_id = ${userId}::uuid ORDER BY created_at
       `).catch(() => []),
       db.execute(sql`
-        SELECT key, value FROM settings WHERE key NOT LIKE '%api_key%' AND key NOT LIKE '%secret%'
+        SELECT key, value FROM settings
+        WHERE user_id = ${userId}::uuid
+          AND key NOT LIKE '%api_key%' AND key NOT LIKE '%secret%'
       `).catch(() => []),
     ]);
 
