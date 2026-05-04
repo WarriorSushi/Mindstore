@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
 **Last refreshed:** 2026-05-04
-**Refreshed by:** Claude (Opus 4.7) — mid-Phase-2/3/4 sweep after six innovations shipped to `main`
+**Refreshed by:** Claude (Opus 4.7) — mid-Phase-2/3/4 sweep + .mind file server wiring
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -16,7 +16,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 |---|---|---|
 | `node_modules` installed | ✅ Installed | Verified locally (`npx vitest run` reports 441 passing). |
 | `npm run typecheck` | ✅ Passing | Last verified at the Phase 0 closure; not re-run after Phase 2/3/4 commits — re-verify before next merge. |
-| `npm test` | ✅ 441 / 441 | 62 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (16), attribution (8), plus other increments. |
+| `npm test` | ✅ 451 / 451 | 63 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (16), attribution (8), mind-file (10), plus other increments. |
 | `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
 | `npm run build` | ✅ Passing | Last verified at Phase 0 closure; re-verify before next merge given the `src/server/mind-file/` work is untracked. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
@@ -30,13 +30,13 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 
 | Layer | Count | Notes |
 |---|---|---|
-| API route files (`route.ts`) | 88 | +9 since the prior refresh: `/api/v1/risks` (+2), `/api/v1/mind-diff`, `/api/v1/forgetting/{at-risk,review}`, `/api/v1/search/adversarial`, `/api/v1/fingerprint/snapshots` (+2), `/api/v1/memories/[id]/provenance`. |
+| API route files (`route.ts`) | 90 | +11 since the 2026-05-03 refresh: prior 9 (risks, mind-diff, forgetting, adversarial, fingerprint snapshots, provenance) plus `/api/v1/export/mind` and `/api/v1/import/mind` (commit `bf09e93`). |
 | App pages | 39 | +3 since the prior refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`. (Counted via `find src/app/app -name page.tsx`; the 40 in the prior refresh was a count error — corrected here.) |
 | Plugin manifests in registry | 35 | README badge says 35 (matches); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
 | Doc files (root + `docs/`) | 113 | Plus 4 master docs at root (`CLAUDE_TAKEOVER`, `STATUS`, `PRODUCTION_READINESS`, `FEATURE_BACKLOG`). Stale planning artifacts in `docs/archive/`. |
-| Unit test files | 62 | **441 individual test cases.** +52 since prior refresh, distributed across 6 new test files for fingerprint snapshots, adversarial retrieval, mind-diff, forgetting, risks-scanner, and attribution. |
+| Unit test files | 63 | **451 individual test cases.** +62 since the 2026-05-03 refresh. New files: fingerprint-snapshot, retrieval-adversarial, mind-diff, forgetting, risks-scanner, attribution, mind-file (10 round-trip + rejection cases). |
 | Workspace packages | 3 | `@mindstore/plugin-sdk`, `@mindstore/plugin-runtime`, `@mindstore/example-community-plugin`. |
 | Browser extension | 1 | `extensions/mindstore-everywhere/`. Chrome Manifest V3, content + popup. |
 
@@ -238,7 +238,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | 5 | Mind Diff | ✅ shipped (Phase 2, commit `5102ffc`) | — |
 | 6 | Cross-Pollination Engine | partial | 2 |
 | 7 | Thought Threading | absent | 3 |
-| 8 | `.mind` Portable File | 🟡 IN FLIGHT — `src/server/mind-file/{writer,reader,merger}.ts` present locally, untracked. Format `mindstore.mind/1.0`: ZIP with manifest + memories.jsonl + embeddings.bin + tree_index + connections + profile. Streamed to HTTP response (no Blob dependency). No API route or page wired yet. | 4 |
+| 8 | `.mind` Portable File | 🟢 server shipped (Phase 4, commit `bf09e93`); UI follow-up pending. `POST /api/v1/export/mind` streams a `mindstore.mind/1.0` ZIP back; `POST /api/v1/import/mind` accepts multipart or raw upload, supports `?dryRun=1`, dedups by content hash. UI integration into `/app/export` + `/app/import` tabs is the remaining slice. | 4 (UI) |
 | 9 | Knowledge Metabolism Score | ✅ shipped (Phase 2, commit `c0cc2b2`) | — |
 | 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
 | N1 | Mind Marketplace | absent | 4 |
@@ -252,7 +252,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | N9 | Memory Audit Trail | ✅ shipped (Phase 4, commit `81f0447`) | — |
 | N10 | Mind Coaching | absent | 5 |
 
-**Progress tally:** 8 of 20 innovations shipped (#2, #3, #4, #5, #9, #10, #N2, #N9). 1 in flight locally (#8). 11 absent or partial.
+**Progress tally:** 8 fully shipped + 1 server-shipped/UI-pending (#8) of 20 innovations. (#2, #3, #4, #5, #8 server, #9, #10, #N2, #N9 done.) 11 absent or partial.
 
 ---
 
@@ -375,7 +375,7 @@ Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 
 - [x] B.2 Knowledge Attack Surface — `src/server/risks/scanner.ts`, two API routes, `/app/security` page. Commit `0802dc3`.
 - [x] B.9 Memory Audit Trail — `src/server/attribution/citations.ts`, provenance API route. Commit `81f0447`.
-- [🟡] A.8 `.mind` Portable File — local working copy under `src/server/mind-file/{writer,reader,merger}.ts`, **untracked**. No route or page wired. Needs: API route(s), import/export UI, Vercel Blob integration decision (storage-agnostic format already chosen, so wiring is a runtime change), tests.
+- [🟢] A.8 `.mind` Portable File — server side shipped (commit `bf09e93`): writer/reader/merger committed, `POST /api/v1/export/mind` and `POST /api/v1/import/mind` wired with auth + write rate-limit + 200MB cap + `?dryRun=1`. 10 round-trip + rejection unit tests. Bug-fix landed on the same commit: dedup query in `merger.ts` had a Drizzle template-binding-inside-single-quotes bug that would have silently let re-imports double up; hardcoded the literal `'__mindfile_hash__'`. **Still to do:** UI tabs in `/app/export` + `/app/import` (server is ready to drive them), Vercel Blob integration decision (deferred — format is storage-agnostic so this is a runtime change, not a format change), conflict-resolver UI for the dryRun preview.
 - [ ] #N1 Mind Marketplace.
 
 Phases 5: see `PRODUCTION_READINESS.md`.
