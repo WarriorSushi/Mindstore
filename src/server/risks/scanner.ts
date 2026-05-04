@@ -144,31 +144,46 @@ export function detectSpof(input: { perTitle: Array<{ title: string; count: numb
  * un-dismissed rows for the same user). Returns the new risks.
  */
 export async function scanUserKnowledge(userId: string): Promise<ScannedRisk[]> {
-  // Pull every memory for the user, content-only (we don't need embeddings).
-  const memoryRows = (await db.execute(sql`
-    SELECT id, content, source_type, source_title
-    FROM memories
-    WHERE user_id = ${userId}::uuid
-  `)) as unknown as Array<{ id: string; content: string; source_type: string; source_title: string | null }>;
+  // Pull memories in pages. A single SELECT with no LIMIT would load
+  // every memory's full content into memory before regexing — for large
+  // bases (50k+ memories with multi-kB content each) that's both an OOM
+  // risk and a long event-loop block. Pagination caps the working set.
+  const PAGE = 1000;
+  const HARD_LIMIT = 50_000; // safety cap; the scanner is a weekly cron, not a real-time loop
+  const allMemories: Array<{ id: string; content: string; source_type: string; source_title: string | null }> = [];
+
+  for (let offset = 0; offset < HARD_LIMIT; offset += PAGE) {
+    const page = (await db.execute(sql`
+      SELECT id, content, source_type, source_title
+      FROM memories
+      WHERE user_id = ${userId}::uuid
+      ORDER BY created_at DESC
+      LIMIT ${PAGE} OFFSET ${offset}
+    `)) as unknown as Array<{ id: string; content: string; source_type: string; source_title: string | null }>;
+
+    if (page.length === 0) break;
+    allMemories.push(...page);
+    if (page.length < PAGE) break;
+  }
 
   const risks: ScannedRisk[] = [];
 
   // Per-memory scans (secret, PII).
-  for (const row of memoryRows) {
+  for (const row of allMemories) {
     risks.push(...scanMemoryContent({ id: row.id, content: row.content, sourceType: row.source_type }));
   }
 
   // Source counts.
   const sourceCounts: Record<string, number> = {};
-  for (const row of memoryRows) {
+  for (const row of allMemories) {
     sourceCounts[row.source_type] = (sourceCounts[row.source_type] ?? 0) + 1;
   }
-  const silo = detectSilo({ sourceCounts, total: memoryRows.length });
+  const silo = detectSilo({ sourceCounts, total: allMemories.length });
   if (silo) risks.push(silo);
 
   // SPoF on titles.
   const titleMap = new Map<string, { count: number; memoryIds: string[] }>();
-  for (const row of memoryRows) {
+  for (const row of allMemories) {
     const t = row.source_title?.trim();
     if (!t) continue;
     let entry = titleMap.get(t);
@@ -179,24 +194,43 @@ export async function scanUserKnowledge(userId: string): Promise<ScannedRisk[]> 
   const perTitle = Array.from(titleMap.entries()).map(([title, value]) => ({ title, count: value.count, memoryIds: value.memoryIds }));
   risks.push(...detectSpof({ perTitle }));
 
-  // Persist: clear old un-dismissed rows then insert fresh ones.
+  // Persist: clear old un-dismissed rows then bulk-insert via UNNEST.
   await db.execute(sql`
     DELETE FROM knowledge_risks
     WHERE user_id = ${userId}::uuid AND dismissed = 0
   `);
 
-  for (const risk of risks) {
+  if (risks.length === 0) return risks;
+
+  // Batch insert: 200 rows per statement to stay well under Postgres's
+  // 65k-parameter limit while avoiding the prior N+1 round-trip pattern.
+  const INSERT_BATCH = 200;
+  for (let i = 0; i < risks.length; i += INSERT_BATCH) {
+    const batch = risks.slice(i, i + INSERT_BATCH);
+    const types = batch.map((r) => r.riskType);
+    const severities = batch.map((r) => r.severity);
+    const descriptions = batch.map((r) => r.description);
+    // Each row's affectedMemoryIds is itself an array; unnest one level
+    // by serializing each as a Postgres array literal `{uuid,uuid,...}`.
+    const affected = batch.map((r) => `{${r.affectedMemoryIds.join(',')}}`);
+    const metas = batch.map((r) => JSON.stringify(r.metadata));
+
     await db.execute(sql`
-      INSERT INTO knowledge_risks (
-        user_id, risk_type, severity, description, affected_memory_ids, metadata
-      ) VALUES (
+      INSERT INTO knowledge_risks (user_id, risk_type, severity, description, affected_memory_ids, metadata)
+      SELECT
         ${userId}::uuid,
-        ${risk.riskType}::knowledge_risk_type,
-        ${risk.severity}::knowledge_risk_severity,
-        ${risk.description},
-        ${risk.affectedMemoryIds}::uuid[],
-        ${JSON.stringify(risk.metadata)}::jsonb
-      )
+        t.risk_type::knowledge_risk_type,
+        t.severity::knowledge_risk_severity,
+        t.description,
+        t.affected::uuid[],
+        t.meta::jsonb
+      FROM UNNEST(
+        ${types}::text[],
+        ${severities}::text[],
+        ${descriptions}::text[],
+        ${affected}::text[],
+        ${metas}::text[]
+      ) AS t(risk_type, severity, description, affected, meta)
     `);
   }
 

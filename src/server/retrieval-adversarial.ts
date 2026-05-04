@@ -67,11 +67,18 @@ export async function retrieveAdversarial(
   if (baseResults.length === 0) return [];
 
   const memoryIds = baseResults.map((r) => r.memoryId);
+  // Contradiction graphs can be dense for users with active
+  // contradiction-finder runs. Cap at 10× the base limit so the
+  // post-processing dedup loop stays bounded; this matches the
+  // overfetch ratio above (baseLimit = limit * 3).
+  const contradictionLimit = Math.max(baseLimit * 10, 200);
   const contradictions = (await db.execute(sql`
     SELECT memory_a_id, memory_b_id, topic, description
     FROM contradictions
     WHERE user_id = ${rest.userId}::uuid
       AND (memory_a_id = ANY(${memoryIds}::uuid[]) OR memory_b_id = ANY(${memoryIds}::uuid[]))
+    ORDER BY detected_at DESC
+    LIMIT ${contradictionLimit}
   `)) as unknown as ContradictionRow[];
 
   // Build a per-memory map of opposing IDs and topics.

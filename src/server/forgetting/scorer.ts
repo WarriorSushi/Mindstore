@@ -77,20 +77,32 @@ export async function recomputeRiskForUser(userId: string): Promise<{
   scored: number;
   highRisk: number; // priority >= 4
 }> {
-  // Pull every memory's last-touch + SM-2 state in one query. The LEFT
-  // JOIN against memory_reviews picks up flashcard SM-2 state where
-  // present; otherwise we fall back to the memory's own created_at.
+  // Pull every memory's last-touch + SM-2 state. The LEFT JOIN against
+  // memory_reviews picks up flashcard SM-2 state where present; otherwise
+  // we fall back to the memory's own created_at / imported_at.
+  //
+  // The earlier version wrapped the COALESCE in GREATEST(..., imported_at)
+  // which silently overrode a real review date whenever imported_at was
+  // more recent (common after backdated imports). The COALESCE alone gives
+  // the correct precedence: last_reviewed_at > created_at > imported_at >
+  // NOW().
+  //
+  // Bounded by HARD_SCAN_LIMIT to prevent OOM on power-user accounts —
+  // the scorer is best-effort, run as a cron, and the at-risk endpoint
+  // can lazy-recompute in batches if more memories exist.
+  const HARD_SCAN_LIMIT = 50_000;
   const rows = (await db.execute(sql`
     SELECT
       m.id AS memory_id,
-      EXTRACT(EPOCH FROM (NOW() - GREATEST(
-        COALESCE(mr.last_reviewed_at, m.created_at, m.imported_at, NOW()),
-        m.imported_at
+      EXTRACT(EPOCH FROM (NOW() - COALESCE(
+        mr.last_reviewed_at, m.created_at, m.imported_at, NOW()
       ))) / 86400.0 AS days_since_touch,
       mr.review_count AS repetitions
     FROM memories m
     LEFT JOIN memory_reviews mr ON mr.memory_id = m.id AND mr.user_id = m.user_id
     WHERE m.user_id = ${userId}::uuid
+    ORDER BY m.created_at DESC
+    LIMIT ${HARD_SCAN_LIMIT}
   `)) as unknown as Array<{
     memory_id: string;
     days_since_touch: number;
