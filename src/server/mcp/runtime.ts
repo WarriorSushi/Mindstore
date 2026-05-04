@@ -1,17 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
 import { generateEmbeddings } from "@/server/embeddings";
 import { pluginRuntime } from "@/server/plugins/runtime";
 import { getInstalledPluginMap } from "@/server/plugins/state";
 import { retrieve } from "@/server/retrieval";
+import { retrieveAdversarial } from "@/server/retrieval-adversarial";
 import { getUserId } from "@/server/user";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 
 export const MINDSTORE_MCP_SERVER_INFO = {
   name: "mindstore",
-  version: "0.2.0",
-  description: "Your personal MindStore — searchable knowledge from your conversations, notes, and documents",
+  version: "0.3.0",
+  description: "Your personal MindStore — searchable knowledge from your conversations, notes, and documents. Search, contextualize, contradict, thread, and write to your second brain from any MCP client.",
 };
 
 export interface McpToolDefinition {
@@ -91,6 +93,56 @@ export const CORE_MCP_TOOLS: McpToolDefinition[] = [
       required: ["topic"],
     },
   },
+  {
+    name: "get_timeline",
+    description: "See how the user's thinking on a topic evolved over time. Returns matching memories sorted oldest-to-newest with timestamps, optionally bounded by a date range. Useful for 'when did I first learn X?' or 'how have my views on Y shifted since last year?'",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Topic to trace through time" },
+        fromDate: { type: "string", description: "Optional ISO date (YYYY-MM-DD) lower bound" },
+        toDate: { type: "string", description: "Optional ISO date (YYYY-MM-DD) upper bound" },
+        limit: { type: "number", description: "Max memories (default 20, max 50)" },
+      },
+      required: ["topic"],
+    },
+  },
+  {
+    name: "get_contradictions",
+    description: "Surface contradictions in the user's knowledge base for a query. Uses precomputed contradictions from the contradiction-finder plugin. Returns memories that disagree with each other so the AI can present 'devil's advocate' views or admit uncertainty rather than parroting one side. Falls back gracefully if no contradictions are recorded.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Query to check for contradictions" },
+        limit: { type: "number", description: "Max contradicting pairs to return (default 5, max 15)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_threads",
+    description: "Find coherent threads of thought on a topic — groups of memories from the same source (document, conversation, book) where the topic appears. Helps an AI assistant follow a line of reasoning rather than seeing isolated chunks. If no topic is given, returns the user's most prolific recent threads.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Optional topic to thread on. Omit for most-active recent threads." },
+        limit: { type: "number", description: "Max threads to return (default 5, max 15)" },
+      },
+    },
+  },
+  {
+    name: "learn_fact",
+    description: "Teach MindStore a new fact from the current conversation. The AI assistant calls this when the user says something worth remembering ('remember that X' / 'note this' / 'save this for later'). The fact is embedded and stored alongside the user's other memories. Returns the new memory's id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "The fact to remember (1-50,000 characters)" },
+        category: { type: "string", description: "Optional category label (e.g., 'preference', 'project-status', 'goal')" },
+        source: { type: "string", description: "Optional human-readable source label (e.g., 'Conversation with Claude on 2026-05-04')" },
+      },
+      required: ["content"],
+    },
+  },
 ];
 
 export const CORE_MCP_RESOURCES = [
@@ -154,6 +206,14 @@ export async function callMcpTool(name: string, args: Record<string, unknown>) {
       return { text: await toolGetProfile() };
     case "get_context":
       return { text: await toolGetContext(args as { topic: string; limit?: number }) };
+    case "get_timeline":
+      return { text: await toolGetTimeline(args as { topic: string; fromDate?: string; toDate?: string; limit?: number }) };
+    case "get_contradictions":
+      return { text: await toolGetContradictions(args as { query: string; limit?: number }) };
+    case "get_threads":
+      return { text: await toolGetThreads(args as { topic?: string; limit?: number }) };
+    case "learn_fact":
+      return { text: await toolLearnFact(args as { content: string; category?: string; source?: string }) };
     default: {
       const bindings = await getMcpBindings();
       const pluginTool = bindings.tools.find((binding) => binding.tool.definition.name === name);
@@ -422,6 +482,351 @@ ${topSourcesList}`;
 async function toolGetContext(args: { topic: string; limit?: number }): Promise<string> {
   const result = await toolSearchMind({ query: args.topic, limit: args.limit || 5 });
   return `Context from the user's knowledge base about "${args.topic}":\n\n${result}`;
+}
+
+interface TimelineRow {
+  id: string;
+  content: string;
+  source_type: string;
+  source_title: string | null;
+  created_at: string | Date | null;
+}
+
+async function toolGetTimeline(args: {
+  topic: string;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}): Promise<string> {
+  const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
+  const userId = await getMcpUserId();
+
+  let embedding: number[] | null = null;
+  try {
+    const embeddings = await generateEmbeddings([args.topic], { mode: 'query' });
+    if (embeddings && embeddings.length > 0) {
+      embedding = embeddings[0];
+    }
+  } catch {
+    // fall back to text-only retrieval
+  }
+
+  // Validate optional date bounds. If invalid, ignore (don't error — the
+  // AI client may pass loose strings).
+  const from = parseLooseDate(args.fromDate);
+  const to = parseLooseDate(args.toDate);
+
+  const dateFrom = from ?? undefined;
+  const dateTo = to ?? undefined;
+
+  // Overfetch so we have material to sort chronologically; the user
+  // asked for `limit` semantically-relevant results spanning time, not
+  // the strict top-k.
+  const overfetch = Math.max(limit * 3, 60);
+  const matches = await retrieve(args.topic, embedding, {
+    userId,
+    limit: overfetch,
+    dateFrom,
+    dateTo,
+  });
+
+  if (matches.length === 0) {
+    return `No memories matched "${args.topic}"${
+      from || to ? ' in the requested date range' : ''
+    }.`;
+  }
+
+  // Sort oldest → newest. Memories without dates sink to the end.
+  const sorted = [...matches].sort((a, b) => {
+    const aTs = a.createdAt ? new Date(a.createdAt).getTime() : Number.POSITIVE_INFINITY;
+    const bTs = b.createdAt ? new Date(b.createdAt).getTime() : Number.POSITIVE_INFINITY;
+    return aTs - bTs;
+  });
+
+  const trimmed = sorted.slice(0, limit);
+
+  const lines = trimmed.map((row, index) => {
+    const date = row.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : 'unknown date';
+    const title = row.sourceTitle || 'Untitled';
+    return `[${index + 1}] ${date} — "${title}" (${row.sourceType})\n${row.content}`;
+  });
+
+  const span =
+    from || to
+      ? ` between ${from ? from.toISOString().slice(0, 10) : 'the beginning'} and ${
+          to ? to.toISOString().slice(0, 10) : 'now'
+        }`
+      : '';
+
+  return `Timeline for "${args.topic}"${span}: ${trimmed.length} memories oldest → newest.\n\n${lines.join(
+    '\n\n---\n\n',
+  )}`;
+}
+
+async function toolGetContradictions(args: { query: string; limit?: number }): Promise<string> {
+  const limit = Math.min(Math.max(args.limit ?? 5, 1), 15);
+  const userId = await getMcpUserId();
+
+  let embedding: number[] | null = null;
+  try {
+    const embeddings = await generateEmbeddings([args.query], { mode: 'query' });
+    if (embeddings && embeddings.length > 0) embedding = embeddings[0];
+  } catch {
+    // fall back
+  }
+
+  const adversarial = await retrieveAdversarial(args.query, embedding, {
+    userId,
+    limit,
+  });
+
+  if (adversarial.length === 0) {
+    return `No recorded contradictions in the user's knowledge base for "${args.query}". (Either the topic is consistent, or the contradiction-finder plugin hasn't scanned this area yet.)`;
+  }
+
+  // For each adversarial result, fetch the contradicting memories' content
+  // so the AI client gets both sides without a follow-up call.
+  const opposingIds = Array.from(
+    new Set(adversarial.flatMap((row) => row.opposingMemoryIds)),
+  );
+  const opposingMap = new Map<string, { content: string; sourceTitle: string | null; sourceType: string }>();
+  if (opposingIds.length > 0) {
+    const rows = (await db.execute(sql`
+      SELECT id, content, source_title, source_type
+      FROM memories
+      WHERE user_id = ${userId}::uuid AND id = ANY(${opposingIds}::uuid[])
+    `)) as unknown as Array<{
+      id: string;
+      content: string;
+      source_title: string | null;
+      source_type: string;
+    }>;
+    for (const row of rows) {
+      opposingMap.set(row.id, {
+        content: row.content,
+        sourceTitle: row.source_title,
+        sourceType: row.source_type,
+      });
+    }
+  }
+
+  const blocks = adversarial.map((result, index) => {
+    const opposingDetails = result.opposingMemoryIds
+      .map((id, opIndex) => {
+        const opp = opposingMap.get(id);
+        if (!opp) return `  ↔ [opposing memory ${id}] (content not available)`;
+        return `  ↔ "${opp.sourceTitle || 'Untitled'}" (${opp.sourceType})\n     ${opp.content}`;
+      })
+      .join('\n');
+
+    const topics = result.contradictionTopics.length
+      ? ` [topics: ${result.contradictionTopics.join(', ')}]`
+      : '';
+
+    return `[${index + 1}]${topics} "${result.sourceTitle || 'Untitled'}" (${result.sourceType})\n${result.content}\n\n${opposingDetails}`;
+  });
+
+  return `Found ${adversarial.length} contradictions related to "${args.query}". Each block is one memory plus the memory(ies) it disagrees with:\n\n${blocks.join('\n\n===\n\n')}`;
+}
+
+interface ThreadMemberRow {
+  id: string;
+  content: string;
+  source_type: string;
+  source_title: string | null;
+  created_at: string | Date | null;
+}
+
+async function toolGetThreads(args: { topic?: string; limit?: number }): Promise<string> {
+  const limit = Math.min(Math.max(args.limit ?? 5, 1), 15);
+  const userId = await getMcpUserId();
+
+  // Topic-mode: search semantically, then group results by source_title.
+  // Each group ≥ 2 memories is considered a "thread" — a coherent line
+  // of thinking visible across multiple chunks of the same source.
+  if (args.topic && args.topic.trim()) {
+    let embedding: number[] | null = null;
+    try {
+      const embeddings = await generateEmbeddings([args.topic], { mode: 'query' });
+      if (embeddings && embeddings.length > 0) embedding = embeddings[0];
+    } catch {
+      // fall back to lexical-only
+    }
+
+    const matches = await retrieve(args.topic, embedding, {
+      userId,
+      limit: 60, // overfetch so groups have material
+    });
+
+    if (matches.length === 0) {
+      return `No threads found for "${args.topic}". The topic may not appear in any of your memories yet.`;
+    }
+
+    type Thread = {
+      sourceTitle: string;
+      sourceType: string;
+      memoryCount: number;
+      earliest: Date | null;
+      latest: Date | null;
+      preview: string;
+    };
+
+    const threadMap = new Map<string, Thread>();
+    for (const row of matches) {
+      const key = `${row.sourceType}::${row.sourceTitle ?? 'Untitled'}`;
+      const ts = row.createdAt ? new Date(row.createdAt) : null;
+      const existing = threadMap.get(key);
+      if (existing) {
+        existing.memoryCount += 1;
+        if (ts) {
+          if (!existing.earliest || ts < existing.earliest) existing.earliest = ts;
+          if (!existing.latest || ts > existing.latest) existing.latest = ts;
+        }
+      } else {
+        threadMap.set(key, {
+          sourceTitle: row.sourceTitle ?? 'Untitled',
+          sourceType: row.sourceType,
+          memoryCount: 1,
+          earliest: ts,
+          latest: ts,
+          preview: row.content.length > 200 ? row.content.slice(0, 200) + '…' : row.content,
+        });
+      }
+    }
+
+    // Threads with only 1 memory aren't really threads — they're single hits.
+    const threads = Array.from(threadMap.values())
+      .filter((t) => t.memoryCount >= 2)
+      .sort((a, b) => b.memoryCount - a.memoryCount)
+      .slice(0, limit);
+
+    if (threads.length === 0) {
+      return `Found ${matches.length} matches for "${args.topic}" but they're scattered across different sources — no coherent thread of ≥2 memories from the same source. Try search_mind for the raw matches.`;
+    }
+
+    const blocks = threads.map((thread, index) => {
+      const span =
+        thread.earliest && thread.latest && thread.earliest.getTime() !== thread.latest.getTime()
+          ? `${thread.earliest.toISOString().slice(0, 10)} → ${thread.latest.toISOString().slice(0, 10)}`
+          : thread.earliest
+            ? thread.earliest.toISOString().slice(0, 10)
+            : 'unknown date';
+      return `[${index + 1}] "${thread.sourceTitle}" (${thread.sourceType}) — ${thread.memoryCount} memories, ${span}\n   First-match preview: ${thread.preview}`;
+    });
+
+    return `Threads on "${args.topic}":\n\n${blocks.join('\n\n')}\n\nUse search_mind with source="<sourceType>" to drill into a specific thread's memories.`;
+  }
+
+  // No-topic mode: most prolific recent sources in the last 90 days.
+  const recent = (await db.execute(sql`
+    SELECT
+      source_type,
+      source_title,
+      COUNT(*)::int AS memory_count,
+      MIN(created_at) AS earliest,
+      MAX(created_at) AS latest
+    FROM memories
+    WHERE user_id = ${userId}::uuid
+      AND created_at >= NOW() - INTERVAL '90 days'
+      AND source_title IS NOT NULL
+    GROUP BY source_type, source_title
+    HAVING COUNT(*) >= 2
+    ORDER BY memory_count DESC, latest DESC
+    LIMIT ${limit}
+  `)) as unknown as Array<{
+    source_type: string;
+    source_title: string | null;
+    memory_count: number;
+    earliest: string | Date | null;
+    latest: string | Date | null;
+  }>;
+
+  if (recent.length === 0) {
+    return 'No active threads in the last 90 days. Try get_threads with a specific topic, or import more content.';
+  }
+
+  const blocks = recent.map((row, index) => {
+    const earliest = row.earliest ? new Date(row.earliest).toISOString().slice(0, 10) : '?';
+    const latest = row.latest ? new Date(row.latest).toISOString().slice(0, 10) : '?';
+    return `[${index + 1}] "${row.source_title}" (${row.source_type}) — ${row.memory_count} memories, ${earliest} → ${latest}`;
+  });
+
+  return `Most active recent threads (last 90 days):\n\n${blocks.join('\n')}\n\nCall get_threads with a topic to thread by topic instead, or search_mind to see individual memories.`;
+}
+
+async function toolLearnFact(args: {
+  content: string;
+  category?: string;
+  source?: string;
+}): Promise<string> {
+  const content = args.content?.trim() ?? '';
+  if (content.length === 0) {
+    return 'Error: content is required and must not be empty.';
+  }
+  if (content.length > 50_000) {
+    return 'Error: content exceeds the 50,000-character limit. Pass a shorter excerpt and call again.';
+  }
+
+  const userId = await getMcpUserId();
+
+  // Generate an embedding so the fact is searchable from day one.
+  let embeddingLiteral: string | null = null;
+  try {
+    const embeddings = await generateEmbeddings([content]);
+    if (embeddings && embeddings.length > 0) {
+      embeddingLiteral = `[${embeddings[0].join(',')}]`;
+    }
+  } catch {
+    // Embedding failure is non-fatal — the memory still gets stored,
+    // and the indexing-jobs queue can backfill embeddings later.
+  }
+
+  const id = randomUUID();
+  const sourceLabel = (args.source && args.source.trim()) || 'AI assistant via MCP';
+  const metadata: Record<string, unknown> = {
+    learnedVia: 'mcp:learn_fact',
+    learnedAt: new Date().toISOString(),
+  };
+  if (args.category) metadata.category = args.category.slice(0, 100);
+
+  if (embeddingLiteral) {
+    await db.execute(sql`
+      INSERT INTO memories (id, user_id, content, embedding, source_type, source_id, source_title, metadata, created_at, imported_at)
+      VALUES (
+        ${id}::uuid, ${userId}::uuid, ${content},
+        ${embeddingLiteral}::vector,
+        'ai-taught', null, ${sourceLabel},
+        ${JSON.stringify(metadata)}::jsonb,
+        NOW(), NOW()
+      )
+    `);
+  } else {
+    await db.execute(sql`
+      INSERT INTO memories (id, user_id, content, source_type, source_id, source_title, metadata, created_at, imported_at)
+      VALUES (
+        ${id}::uuid, ${userId}::uuid, ${content},
+        'ai-taught', null, ${sourceLabel},
+        ${JSON.stringify(metadata)}::jsonb,
+        NOW(), NOW()
+      )
+    `);
+  }
+
+  return `Stored. id=${id}. Source label: "${sourceLabel}". ${
+    args.category ? `Category: "${args.category}". ` : ''
+  }${
+    embeddingLiteral ? 'Embedded and immediately searchable.' : 'Stored without embedding (provider unavailable); will be backfilled by the indexing job.'
+  }`;
+}
+
+/** Parse a loose YYYY-MM-DD or full ISO string. Returns null on garbage. */
+function parseLooseDate(value: string | undefined): Date | null {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const date = new Date(trimmed);
+  if (isNaN(date.getTime())) return null;
+  return date;
 }
 
 async function resourceProfile(): Promise<string> {
