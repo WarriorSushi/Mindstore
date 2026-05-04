@@ -190,7 +190,13 @@ export default function MarkdownBlogExportPage() {
         {/* ─── Header ──────────────────────────────── */}
         <div>
           <h1 className="text-[22px] md:text-[28px] font-semibold tracking-[-0.03em]">Blog Export</h1>
-          <p className="text-[13px] text-zinc-500 mt-0.5">Export memories as blog-ready markdown files</p>
+          <p className="text-[13px] text-zinc-500 mt-0.5">
+            Export memories as blog-ready markdown files — or pack the whole base into a{' '}
+            <a href="/app/portable" className="text-teal-400 hover:text-teal-300 underline-offset-2 hover:underline transition-colors">
+              portable .mind file
+            </a>
+            .
+          </p>
         </div>
 
         {/* ─── No Memories State ───────────────────── */}

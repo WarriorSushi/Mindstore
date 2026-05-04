@@ -8,6 +8,7 @@ import {
   Search, Keyboard, Puzzle, TrendingUp, Heart, Target, PenTool, Layers,
   FileEdit, Users, Route, FileUser, Mail, Mic, Camera, SlidersHorizontal, Globe, Dna,
   Download, FolderDown, FileStack, Gem, ChevronDown, Zap, BarChart3, Copy, FolderOpen,
+  FileBox,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -113,6 +114,7 @@ const navSections: NavSection[] = [
     items: [
       { href: "/app/anki", icon: Download, label: "Anki Export" },
       { href: "/app/export", icon: FolderDown, label: "Blog Export" },
+      { href: "/app/portable", icon: FileBox, label: "Portable .mind" },
       { href: "/app/notion-sync", icon: FileStack, label: "Notion Sync" },
       { href: "/app/obsidian-sync", icon: Gem, label: "Obsidian Sync" },
     ],
