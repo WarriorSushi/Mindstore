@@ -8,7 +8,7 @@ import {
   Search, Keyboard, Puzzle, TrendingUp, Heart, Target, PenTool, Layers,
   FileEdit, Users, Route, FileUser, Mail, Mic, Camera, SlidersHorizontal, Globe, Dna,
   Download, FolderDown, FileStack, Gem, ChevronDown, Zap, BarChart3, Copy, FolderOpen,
-  FileBox,
+  FileBox, Plug,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -126,6 +126,7 @@ const navSections: NavSection[] = [
     items: [
       { href: "/app/plugins", icon: Puzzle, label: "Plugins" },
       { href: "/app/connect", icon: Network, label: "Connect AI" },
+      { href: "/app/mcp-setup", icon: Plug, label: "MCP Setup" },
       { href: "/app/settings", icon: Settings, label: "Settings" },
     ],
   },
