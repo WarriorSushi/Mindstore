@@ -35,7 +35,14 @@ export interface AITextConfig {
   key?: string;
   model: string;
   extraHeaders?: Record<string, string>;
-  providerLabel: "openai" | "openrouter" | "custom" | "gemini" | "ollama";
+  providerLabel: "openai" | "openrouter" | "custom" | "gemini" | "ollama" | "bundled";
+  /**
+   * When the request is being routed through the bundled-AI mode,
+   * the user id whose quota the call counts against. The chat / plugin
+   * route tracks usage post-response by calling recordUsage() with this id.
+   * Absent for BYO-key paths.
+   */
+  bundledUserId?: string;
 }
 
 export interface AITranscriptionConfig {
@@ -248,6 +255,8 @@ export function resolveTextGenerationConfigFromSettings(
 }
 
 export async function getTextGenerationConfig(defaults: AITextDefaults = {}, userId?: string) {
+  const bundled = await maybeBuildBundledConfig(userId, undefined);
+  if (bundled) return bundled;
   return resolveTextGenerationConfigFromSettings(
     await loadAISettings(TEXT_SETTING_KEYS, userId),
     defaults,
@@ -255,11 +264,77 @@ export async function getTextGenerationConfig(defaults: AITextDefaults = {}, use
 }
 
 export async function getStreamingTextGenerationConfig(modelOverride?: string, userId?: string) {
+  const bundled = await maybeBuildBundledConfig(userId, modelOverride);
+  if (bundled) return bundled;
   return resolveTextGenerationConfigFromSettings(
     await loadAISettings(TEXT_SETTING_KEYS, userId),
     {},
     modelOverride,
   );
+}
+
+/**
+ * Build a Vercel AI Gateway config when the user is on bundled-AI mode
+ * and within quota. Returns null if the user is BYOK, the deployment
+ * doesn't have MINDSTORE_AI_GATEWAY_KEY, or the user's quota is busted
+ * — caller falls back to the BYOK resolver.
+ *
+ * The model defaults to `anthropic/claude-sonnet-4-5` (the gateway's
+ * standard slug for Sonnet) — pick reasonable middle-ground default.
+ * Power users override per-call by passing modelOverride or by setting
+ * `chat_model` in their settings.
+ */
+async function maybeBuildBundledConfig(
+  userId: string | undefined,
+  modelOverride: string | undefined,
+): Promise<AITextConfig | null> {
+  if (!userId) return null;
+  const platformKey = process.env.MINDSTORE_AI_GATEWAY_KEY;
+  if (!platformKey) return null;
+
+  const { DEFAULT_USER_ID } = await import('./identity');
+  // Don't route the default-user (single-user mode self-host) through
+  // bundled — they're paying us nothing. Self-hosters set their own
+  // MINDSTORE_AI_GATEWAY_KEY only if they want the convenience and
+  // they're paying their own gateway bill.
+  if (userId === DEFAULT_USER_ID) {
+    // Allow bundled in self-host mode if explicitly opted in via env.
+    if (process.env.MINDSTORE_BUNDLED_FOR_DEFAULT_USER !== 'true') return null;
+  }
+
+  const settings = await loadAISettings(['chat_provider', 'chat_model'] as readonly string[], userId);
+  const preferred = settings.chat_provider;
+  // Auto means "use bundled if available, else BYOK". Explicit 'byo'
+  // skips bundled. Explicit 'bundled' forces bundled (and we still
+  // soft-fail on quota).
+  if (preferred === 'byo') return null;
+
+  const { checkBundledQuotaOk } = await import('@/server/billing/usage');
+  const quota = await checkBundledQuotaOk(userId, 'chat');
+  if (!quota.ok) {
+    // If the user explicitly chose bundled but is out of quota, raise
+    // visibly so the route can surface the friendly upgrade prompt.
+    // Otherwise (auto/default) just fall back to BYOK silently.
+    if (preferred === 'bundled') {
+      throw new AIClientError(quota.reason || 'Bundled AI quota exceeded', 402);
+    }
+    return null;
+  }
+
+  const model = modelOverride || settings.chat_model || 'anthropic/claude-sonnet-4-5';
+  return {
+    type: 'openai-compatible',
+    url: 'https://ai-gateway.vercel.sh/v1/chat/completions',
+    key: platformKey,
+    model,
+    providerLabel: 'bundled',
+    bundledUserId: userId,
+    extraHeaders: {
+      // Identifies the end-user to the gateway for per-user spend
+      // attribution in the Vercel dashboard.
+      'X-Mindstore-User': userId,
+    },
+  };
 }
 
 export async function callTextGeneration(

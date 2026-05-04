@@ -7,6 +7,7 @@ import {
   getStreamingTextGenerationConfig,
   streamTextGeneration,
 } from '@/server/ai-client';
+import { recordUsage } from '@/server/billing/usage';
 
 interface ChatRequestBody {
   messages?: Array<Partial<AIMessage>>;
@@ -21,6 +22,7 @@ interface ChatRequestBody {
 export async function POST(req: NextRequest) {
   const auth = await requireUserId();
   if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
   const limited = applyRateLimit(req, 'chat', RATE_LIMITS.ai);
   if (limited) return limited;
@@ -52,12 +54,34 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const config = await getStreamingTextGenerationConfig(model);
+    const config = await getStreamingTextGenerationConfig(model, userId);
     if (!config) {
       return NextResponse.json(
-        { error: 'No AI provider configured. Add an API key in Settings.' },
+        { error: 'No AI provider configured. Add an API key in Settings, or upgrade to a paid tier for bundled AI.' },
         { status: 400 },
       );
+    }
+
+    // Best-effort usage tracking for bundled-AI mode. We estimate input
+    // tokens at request time (~4 chars/token) and increment a per-month
+    // counter; the precise gateway-reported token count would need a
+    // streaming wrapper that we'll add in a follow-up. For quota
+    // enforcement, this estimate is well within tolerance.
+    if (config.providerLabel === 'bundled' && config.bundledUserId) {
+      const inputChars = normalizedMessages.reduce((sum, m) => sum + m.content.length, 0);
+      const estTokensIn = Math.max(1, Math.round(inputChars / 4));
+      await recordUsage({
+        userId: config.bundledUserId,
+        kind: 'tokens-in',
+        provider: 'gateway',
+        amount: estTokensIn,
+      });
+      await recordUsage({
+        userId: config.bundledUserId,
+        kind: 'requests',
+        provider: 'gateway',
+        amount: 1,
+      });
     }
 
     return await streamTextGeneration(config, {
