@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { parseJsonBody, requireUserId } from '@/server/api-validation';
 
 interface SettingRow {
   key: string;
@@ -9,7 +12,7 @@ interface SettingRow {
 
 /**
  * GET /api/v1/onboarding — get onboarding wizard state
- * 
+ *
  * Returns:
  *  - completed: whether the wizard was finished or skipped
  *  - currentStep: last completed step index (0-4)
@@ -19,6 +22,9 @@ interface SettingRow {
  *  - memoryCount: number of memories
  */
 export async function GET() {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const rows = await db.execute(
       sql`SELECT key, value FROM settings WHERE key IN (
@@ -77,19 +83,33 @@ export async function GET() {
   }
 }
 
+const OnboardingPostSchema = z.object({
+  step: z.number().int().min(0).max(20).optional(),
+  completed: z.boolean().optional(),
+  userName: z.string().max(200).optional(),
+  aiProviderChoice: z.enum(['openai', 'gemini', 'ollama', 'openrouter', 'custom', 'none']).optional(),
+});
+
 /**
  * POST /api/v1/onboarding — update onboarding state
- * 
- * Body:
- *  - step?: number (current step index)
- *  - completed?: boolean (mark wizard as done)
- *  - userName?: string
- *  - aiProviderChoice?: string
+ *
+ * Body shape validated by OnboardingPostSchema.
+ *
+ * Note: settings is currently a global table (ARCH-1). Auth is required
+ * here per the project's hard rule (no mutation without auth) but the
+ * actual per-user scoping lands when ARCH-1 is resolved.
  */
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
 
+  const limited = applyRateLimit(req, 'onboarding', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, OnboardingPostSchema);
+  if (body instanceof NextResponse) return body;
+
+  try {
     if (body.step !== undefined) {
       await upsertSetting('onboarding_step', String(body.step));
     }

@@ -1,15 +1,27 @@
-import { getUserId } from '@/server/user';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 
 /**
  * GET /api/v1/fingerprint — generate knowledge graph data
+ *
+ * Pulls a sample of memories + cross-similarity edges. Uses
+ * TABLESAMPLE BERNOULLI for the sample (index-friendly, unlike
+ * ORDER BY RANDOM() which forces a full table scan), then fills the
+ * remainder with the most-recent memories so small bases still get a
+ * useful graph.
  */
 export async function GET(req: NextRequest) {
-  try {
-    const userId = await getUserId();
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
+  const limited = applyRateLimit(req, 'fingerprint', RATE_LIMITS.standard);
+  if (limited) return limited;
+
+  try {
     // Get sources (grouped)
     const sourcesResult = await db.execute(sql`
       SELECT source_type as type, source_title as title, source_id as id, COUNT(*)::int as item_count
@@ -19,14 +31,33 @@ export async function GET(req: NextRequest) {
     `);
     const sources = sourcesResult as any[];
 
-    // Get a sample of memories
-    const memoriesResult = await db.execute(sql`
+    // Sample 100 memories. TABLESAMPLE on a per-user filter still scans
+    // because the sample is row-level not page-level for a filtered set,
+    // so we sample first and then filter. For tiny bases (<100 memories
+    // total) the sample may return fewer rows; fall back to most-recent.
+    const sampledResult = await db.execute(sql`
+      WITH sampled AS (
+        SELECT id, content, source_type, source_id, source_title, embedding, user_id
+        FROM memories TABLESAMPLE BERNOULLI(5)
+        WHERE user_id = ${userId}::uuid
+        LIMIT 100
+      ),
+      filler AS (
+        SELECT id, content, source_type, source_id, source_title, embedding
+        FROM memories
+        WHERE user_id = ${userId}::uuid
+          AND id NOT IN (SELECT id FROM sampled)
+        ORDER BY created_at DESC
+        LIMIT 100
+      )
       SELECT id, content, source_type, source_id, source_title, embedding
-      FROM memories WHERE user_id = ${userId}::uuid
-      ORDER BY RANDOM()
+      FROM sampled
+      UNION ALL
+      SELECT id, content, source_type, source_id, source_title, embedding
+      FROM filler
       LIMIT 100
     `);
-    const memories = memoriesResult as any[];
+    const memories = sampledResult as any[];
 
     const nodes: Array<{ id: string; label: string; size: number; group: string }> = [];
     const edges: Array<{ id: string; source: string; target: string; weight: number }> = [];

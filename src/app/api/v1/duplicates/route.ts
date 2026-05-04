@@ -1,28 +1,35 @@
-import { getUserId } from '@/server/user';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { parseJsonBody, requireUserId } from '@/server/api-validation';
 
 /**
  * GET /api/v1/duplicates?threshold=0.92&limit=20
- * 
+ *
  * Find near-duplicate memories using pgvector cosine similarity.
  * Returns pairs of memories with similarity scores above the threshold.
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'duplicates-find', RATE_LIMITS.standard);
+  if (limited) return limited;
+
   try {
     const { searchParams } = new URL(req.url);
-    const threshold = parseFloat(searchParams.get('threshold') || '0.92');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
-    const userId = await getUserId();
+    const rawThreshold = parseFloat(searchParams.get('threshold') || '0.92');
+    const threshold = Number.isFinite(rawThreshold) ? Math.min(Math.max(rawThreshold, 0.5), 0.999) : 0.92;
+    const rawLimit = parseInt(searchParams.get('limit') || '20', 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : 20;
 
-    // Find pairs of memories with high cosine similarity
-    // Uses pgvector's <=> (cosine distance) operator
-    // Cosine distance = 1 - cosine_similarity, so we want distance < (1 - threshold)
     const maxDistance = 1 - threshold;
 
     const pairs = await db.execute(sql`
-      SELECT 
+      SELECT
         a.id AS id_a,
         a.content AS content_a,
         a.source_type AS source_type_a,
@@ -86,28 +93,36 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const MergeSchema = z.object({
+  action: z.enum(['keep_a', 'keep_b', 'merge', 'delete_both']),
+  idA: z.string().uuid(),
+  idB: z.string().uuid(),
+  mergedContent: z.string().min(1).max(200_000).optional(),
+});
+
 /**
- * POST /api/v1/duplicates
- * 
- * Merge two duplicate memories:
- * - action: "keep_a" | "keep_b" | "merge" | "delete_both"
- * - idA, idB: the two memory IDs
- * - mergedContent: (only for "merge") the combined content to keep
+ * POST /api/v1/duplicates — merge two duplicate memories.
+ *
+ * Body: { action: 'keep_a' | 'keep_b' | 'merge' | 'delete_both',
+ *         idA: uuid, idB: uuid, mergedContent?: string }
+ *
+ * Rate-limited as a write because every action either deletes or
+ * updates rows. SEC-9 closes here.
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'duplicates-merge', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, MergeSchema);
+  if (body instanceof NextResponse) return body;
+
+  const { action, idA, idB, mergedContent } = body;
+
   try {
-    const userId = await getUserId();
-    const body = await req.json();
-    const { action, idA, idB, mergedContent } = body;
-
-    if (!idA || !idB) {
-      return NextResponse.json({ error: 'Missing idA or idB' }, { status: 400 });
-    }
-    if (!['keep_a', 'keep_b', 'merge', 'delete_both'].includes(action)) {
-      return NextResponse.json({ error: 'Invalid action. Use: keep_a, keep_b, merge, delete_both' }, { status: 400 });
-    }
-
-    // Verify ownership
     const [memA] = await db.execute(sql`
       SELECT id, content FROM memories WHERE id = ${idA}::uuid AND user_id = ${userId}::uuid
     `) as any[];
@@ -132,14 +147,13 @@ export async function POST(req: NextRequest) {
         result = { kept: 1, deleted: 1, merged: false };
         break;
 
-      case 'merge':
+      case 'merge': {
         if (!mergedContent?.trim()) {
           return NextResponse.json({ error: 'mergedContent required for merge action' }, { status: 400 });
         }
-        // Update memory A with merged content, delete memory B
         await db.execute(sql`
-          UPDATE memories 
-          SET content = ${mergedContent.trim()}, 
+          UPDATE memories
+          SET content = ${mergedContent.trim()},
               embedding = NULL,
               updated_at = NOW()
           WHERE id = ${idA}::uuid AND user_id = ${userId}::uuid
@@ -147,6 +161,7 @@ export async function POST(req: NextRequest) {
         await db.execute(sql`DELETE FROM memories WHERE id = ${idB}::uuid AND user_id = ${userId}::uuid`);
         result = { kept: 1, deleted: 1, merged: true };
         break;
+      }
 
       case 'delete_both':
         await db.execute(sql`DELETE FROM memories WHERE id IN (${idA}::uuid, ${idB}::uuid) AND user_id = ${userId}::uuid`);

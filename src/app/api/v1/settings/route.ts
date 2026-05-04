@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
 import { getEmbeddingConfig } from '@/server/embeddings';
@@ -11,7 +12,7 @@ import {
 import { getIdentityMode, isGoogleAuthConfigured, isSingleUserModeEnabled } from '@/server/identity';
 import { getDatabaseConnectionDiagnostics } from '@/server/postgres-client';
 import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
-import { requireUserId } from '@/server/api-validation';
+import { parseJsonBody, requireUserId } from '@/server/api-validation';
 
 // Note: the `settings` table is currently global (no user_id column) — see
 // STATUS.md ARCH-1. Phase 0 only gates the auth boundary; the per-user
@@ -119,8 +120,47 @@ export async function GET() {
   }
 }
 
+const SettingsPostSchema = z.object({
+  action: z.enum(['remove']).optional(),
+  apiKey: z.string().max(500).optional(),
+  geminiKey: z.string().max(500).optional(),
+  ollamaUrl: z.string().max(500).optional(),
+  openrouterKey: z.string().max(500).optional(),
+  customApiKey: z.string().max(500).optional(),
+  customApiUrl: z.string().max(500).optional(),
+  customApiModel: z.string().max(200).optional(),
+  embeddingProvider: z.string().max(50).optional(),
+  chatProvider: z.string().max(50).optional(),
+  chatModel: z.string().max(200).optional(),
+});
+
+const VALIDATION_TIMEOUT_MS = 5000;
+
 /**
- * POST /api/v1/settings — store settings
+ * Fetch with abort-controller timeout. Returns null if the call timed
+ * out or threw; the caller distinguishes that from a real `Response`
+ * with `.ok = false`. SEC-13 closes here.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), VALIDATION_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * POST /api/v1/settings — store settings.
+ *
+ * Each provider key validation now uses a 5s timeout. If the upstream
+ * is slow or unreachable, we save the key anyway and surface a
+ * `validationSkipped: ['openai', ...]` field so the UI can warn the user.
+ * Without this, a stalled validation request blocks the route until
+ * Vercel's 300s function timeout fires.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireUserId();
@@ -129,10 +169,12 @@ export async function POST(req: NextRequest) {
   const limited = applyRateLimit(req, 'settings', RATE_LIMITS.write);
   if (limited) return limited;
 
-  try {
-    const body = await req.json();
+  const body = await parseJsonBody(req, SettingsPostSchema);
+  if (body instanceof NextResponse) return body;
 
-    // Remove all keys
+  const validationSkipped: string[] = [];
+
+  try {
     if (body.action === 'remove') {
       await db.execute(sql`DELETE FROM settings WHERE key IN (
         'openai_api_key', 'gemini_api_key', 'ollama_url',
@@ -142,61 +184,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, message: 'All keys removed' });
     }
 
-    // Save OpenAI key
     if (body.apiKey) {
       const key = body.apiKey.trim();
-      const testRes = await fetch('https://api.openai.com/v1/models', {
+      const testRes = await fetchWithTimeout('https://api.openai.com/v1/models', {
         headers: { Authorization: `Bearer ${key}` },
       });
-      if (!testRes.ok) {
+      if (testRes === null) {
+        validationSkipped.push('openai');
+      } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid OpenAI API key' }, { status: 400 });
       }
       await upsertSetting('openai_api_key', key);
     }
 
-    // Save Gemini key
     if (body.geminiKey) {
       const key = body.geminiKey.trim();
-      const testRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
+      const testRes = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
       );
-      if (!testRes.ok) {
+      if (testRes === null) {
+        validationSkipped.push('gemini');
+      } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid Gemini API key' }, { status: 400 });
       }
       await upsertSetting('gemini_api_key', key);
     }
 
-    // Save Ollama URL
     if (body.ollamaUrl) {
       await upsertSetting('ollama_url', body.ollamaUrl.trim());
     }
 
-    // Save OpenRouter key
     if (body.openrouterKey) {
       const key = body.openrouterKey.trim();
-      // Test with OpenRouter models endpoint
-      const testRes = await fetch('https://openrouter.ai/api/v1/models', {
+      const testRes = await fetchWithTimeout('https://openrouter.ai/api/v1/models', {
         headers: { Authorization: `Bearer ${key}` },
       });
-      if (!testRes.ok) {
+      if (testRes === null) {
+        validationSkipped.push('openrouter');
+      } else if (!testRes.ok) {
         return NextResponse.json({ error: 'Invalid OpenRouter API key' }, { status: 400 });
       }
       await upsertSetting('openrouter_api_key', key);
     }
 
-    // Save Custom API (any OpenAI-compatible endpoint)
     if (body.customApiKey !== undefined || body.customApiUrl !== undefined || body.customApiModel !== undefined) {
       if (body.customApiKey) await upsertSetting('custom_api_key', body.customApiKey.trim());
       if (body.customApiUrl) await upsertSetting('custom_api_url', body.customApiUrl.trim());
       if (body.customApiModel) await upsertSetting('custom_api_model', body.customApiModel.trim());
     }
 
-    // Save preferred embedding provider
     if (body.embeddingProvider) {
       await upsertSetting('embedding_provider', body.embeddingProvider);
     }
 
-    // Save preferred chat provider
     if (body.chatProvider) {
       if (body.chatProvider === 'auto') {
         await db.execute(sql`DELETE FROM settings WHERE key = 'chat_provider'`);
@@ -205,7 +245,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save preferred chat model
     if (body.chatModel !== undefined) {
       if (!body.chatModel || body.chatModel === 'default') {
         await db.execute(sql`DELETE FROM settings WHERE key = 'chat_model'`);
@@ -214,13 +253,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Auto-reindex: if an API key was just saved, embed any memories that don't have embeddings yet
-    // This runs in the background — response returns immediately
     if (body.apiKey || body.geminiKey || body.ollamaUrl || body.openrouterKey || body.customApiKey) {
-      triggerAutoReindex().catch(() => {}); // fire-and-forget
+      triggerAutoReindex().catch(() => {});
     }
 
-    return NextResponse.json({ ok: true, message: 'Settings saved' });
+    return NextResponse.json({
+      ok: true,
+      message: validationSkipped.length
+        ? `Settings saved (validation skipped for ${validationSkipped.join(', ')} — upstream unreachable)`
+        : 'Settings saved',
+      validationSkipped: validationSkipped.length ? validationSkipped : undefined,
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -230,14 +273,12 @@ export async function POST(req: NextRequest) {
 /**
  * Trigger background reindex of memories without embeddings.
  * Called after an API key is saved — non-blocking, best-effort.
- * Uses waitUntil if available (Vercel edge) or fire-and-forget.
  */
 async function triggerAutoReindex() {
   try {
     const { getUserId } = await import('@/server/user');
     const userId = await getUserId();
-    
-    // Check if there are memories without embeddings
+
     const countRes = await db.execute(sql`
       SELECT COUNT(*)::int as count FROM memories
       WHERE user_id = ${userId}::uuid AND embedding IS NULL
@@ -248,7 +289,6 @@ async function triggerAutoReindex() {
     const { generateEmbeddings } = await import('@/server/embeddings');
     const { buildTreeIndex } = await import('@/server/retrieval');
 
-    // Process in batches of 50
     const BATCH = 50;
     let processed = 0;
     for (let i = 0; i < Math.min(unembedded, 200); i += BATCH) {
@@ -272,7 +312,6 @@ async function triggerAutoReindex() {
       }
     }
 
-    // Rebuild tree index if we processed anything
     if (processed > 0) {
       try { await buildTreeIndex(userId); } catch { /* non-fatal */ }
       console.log(`[auto-reindex] Embedded ${processed}/${unembedded} memories`);
@@ -289,7 +328,6 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 async function upsertSetting(key: string, value: string) {
-  // Encrypt sensitive values (API keys)
   const storedValue = SENSITIVE_KEYS.has(key) ? encrypt(value) : value;
   await db.execute(sql`
     INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${storedValue}, NOW())
@@ -297,7 +335,6 @@ async function upsertSetting(key: string, value: string) {
   `);
 }
 
-/** Read a setting value, decrypting if needed */
 function decryptSettingValue(key: string, value: string): string {
   if (SENSITIVE_KEYS.has(key)) return decrypt(value);
   return value;

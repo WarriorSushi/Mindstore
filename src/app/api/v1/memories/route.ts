@@ -1,21 +1,31 @@
-import { getUserId } from '@/server/user';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/server/db';
 import { generateEmbeddings } from '@/server/embeddings';
 import { sql } from 'drizzle-orm';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { parseJsonBody, requireUserId } from '@/server/api-validation';
+
+/** Hard cap per SEC-12: never return more than 1000 memories in a single request. */
+const MAX_LIMIT = 1000;
 
 /**
  * GET /api/v1/memories?search=&source=&limit=50&offset=0
- * List memories with optional filtering
+ * List memories with optional filtering.
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
-    const userId = await getUserId();
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search') || '';
     const source = searchParams.get('source') || '';
-    const limit = parseInt(searchParams.get('limit') || '200');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const rawLimit = parseInt(searchParams.get('limit') || '200', 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_LIMIT) : 200;
+    const rawOffset = parseInt(searchParams.get('offset') || '0', 10);
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
     const sort = searchParams.get('sort') || 'newest';
     const pinnedOnly = searchParams.get('pinned') === 'true';
@@ -96,6 +106,8 @@ export async function GET(req: NextRequest) {
         };
       }),
       total,
+      limit,
+      offset,
     });
   } catch (error: unknown) {
     console.error('[memories GET]', error);
@@ -103,18 +115,31 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const PostSchema = z.object({
+  content: z.string().min(1).max(200_000),
+  sourceType: z.string().max(100).optional(),
+  sourceId: z.string().max(500).nullish(),
+  sourceTitle: z.string().max(500).nullish(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 /**
  * POST /api/v1/memories — create a single memory
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'memories-create', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, PostSchema);
+  if (body instanceof NextResponse) return body;
+
   try {
-    const userId = await getUserId();
-    const body = await req.json();
     const { content, sourceType, sourceId, sourceTitle, metadata } = body;
 
-    if (!content) return NextResponse.json({ error: 'content required' }, { status: 400 });
-
-    // Generate embedding using available provider
     let embStr: string | null = null;
     try {
       const embeddings = await generateEmbeddings([content]);
@@ -145,21 +170,34 @@ export async function POST(req: NextRequest) {
   }
 }
 
+const PatchSchema = z.object({
+  id: z.string().uuid(),
+  content: z.string().min(1).max(200_000).optional(),
+  title: z.string().max(500).optional(),
+  pinned: z.boolean().optional(),
+}).refine(
+  (v) => v.content !== undefined || v.title !== undefined || v.pinned !== undefined,
+  { message: 'At least one of content, title, or pinned is required' },
+);
+
 /**
- * PATCH /api/v1/memories — update a memory's content (and optionally title)
- * Body: { id: string, content?: string, title?: string }
+ * PATCH /api/v1/memories — update a memory's content, title, or pinned flag.
  * Re-generates embedding when content changes.
  */
 export async function PATCH(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'memories-update', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, PatchSchema);
+  if (body instanceof NextResponse) return body;
+
   try {
-    const userId = await getUserId();
-    const body = await req.json();
     const { id, content, title, pinned } = body;
 
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    if (!content && title === undefined && pinned === undefined) return NextResponse.json({ error: 'content, title, or pinned required' }, { status: 400 });
-
-    // Verify ownership
     const existing = await db.execute(
       sql`SELECT id, metadata FROM memories WHERE id = ${id}::uuid AND user_id = ${userId}::uuid`
     );
@@ -167,12 +205,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Memory not found' }, { status: 404 });
     }
 
-    // Handle pin/unpin via metadata JSONB (no schema migration needed)
     if (pinned !== undefined && !content && title === undefined) {
-      // Pin-only update: merge pinned flag into existing metadata
       const existingMeta = (existing as any[])[0]?.metadata || {};
       const updatedMeta = { ...existingMeta, pinned: !!pinned };
-      if (!pinned) delete updatedMeta.pinned; // Remove flag when unpinning to keep metadata clean
+      if (!pinned) delete updatedMeta.pinned;
       const metaStr = JSON.stringify(updatedMeta);
       await db.execute(sql`
         UPDATE memories SET metadata = ${metaStr}::jsonb
@@ -181,9 +217,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, pinned: !!pinned });
     }
 
-    // Update content (with re-embedding) and/or title
     if (content) {
-      // Re-generate embedding for updated content
       let embStr: string | null = null;
       try {
         const embeddings = await generateEmbeddings([content]);
@@ -229,31 +263,45 @@ export async function PATCH(req: NextRequest) {
 }
 
 /**
- * DELETE /api/v1/memories — delete memories
- * ?id=UUID — delete single memory
- * ?source_id=xxx — delete by source_id (e.g. demo data)
- * no params — clear all memories for user
+ * DELETE /api/v1/memories — delete memories.
+ *
+ *   ?id=UUID         — single memory
+ *   ?source_id=xxx   — bulk by source_id (e.g., demo data cleanup)
+ *   no params        — full wipe of the user's knowledge base
+ *
+ * The full-wipe path also cascades into tree_index, connections,
+ * contradictions, facts, and profile. Rate-limited to RATE_LIMITS.write
+ * to prevent rapid-fire abuse on what is by far the most destructive
+ * endpoint in the API surface.
  */
 export async function DELETE(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'memories-delete', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     const { searchParams } = new URL(req.url);
     const singleId = searchParams.get('id');
     const sourceId = searchParams.get('source_id');
 
     if (singleId) {
-      // Delete a single memory by ID
+      // Validate UUID shape so a malformed value doesn't reach the cast.
+      if (!/^[0-9a-f-]{36}$/i.test(singleId)) {
+        return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+      }
       await db.execute(sql`DELETE FROM memories WHERE id = ${singleId}::uuid AND user_id = ${userId}::uuid`);
       return NextResponse.json({ ok: true });
     }
 
     if (sourceId) {
-      // Delete by source_id (e.g. demo data cleanup)
       await db.execute(sql`DELETE FROM memories WHERE source_id = ${sourceId} AND user_id = ${userId}::uuid`);
       return NextResponse.json({ ok: true });
     }
 
-    // Full wipe
+    // Full wipe — cascades into related per-user state.
     await db.execute(sql`DELETE FROM memories WHERE user_id = ${userId}::uuid`);
     await db.execute(sql`DELETE FROM tree_index WHERE user_id = ${userId}::uuid`);
     await db.execute(sql`DELETE FROM connections WHERE user_id = ${userId}::uuid`);

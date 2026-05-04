@@ -68,7 +68,13 @@ export function scanMemoryContent(memory: MemoryForScan): ScannedRisk[] {
       out.push({
         riskType: 'secret',
         severity,
-        description: `Possible ${name} found in "${truncate(memory.content)}"`,
+        // CRITICAL: never embed the matched content (or any slice of the
+        // memory) into description — knowledge_risks rows are read by
+        // /api/v1/risks and shown in the UI; including the secret here
+        // would defeat the purpose of detecting it. The memory id in
+        // affectedMemoryIds lets the UI link to the source if the user
+        // wants to inspect it.
+        description: `Possible ${name} detected`,
         affectedMemoryIds: [memory.id],
         metadata: { pattern: name, sourceType: memory.sourceType },
       });
@@ -80,7 +86,7 @@ export function scanMemoryContent(memory: MemoryForScan): ScannedRisk[] {
       out.push({
         riskType: 'pii',
         severity,
-        description: `Possible ${name} in "${truncate(memory.content)}"`,
+        description: `Possible ${name} detected`,
         affectedMemoryIds: [memory.id],
         metadata: { pattern: name, sourceType: memory.sourceType },
       });
@@ -88,11 +94,6 @@ export function scanMemoryContent(memory: MemoryForScan): ScannedRisk[] {
   }
 
   return out;
-}
-
-function truncate(s: string, max = 80): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 1) + '…';
 }
 
 /**

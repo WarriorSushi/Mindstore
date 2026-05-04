@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createApiKey, listApiKeys, revokeApiKey } from "@/server/api-keys";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from "@/server/api-rate-limit";
+import { parseJsonBody, requireUserId } from "@/server/api-validation";
 
 export async function GET() {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
-    const userId = await getUserId();
     const keys = await listApiKeys(userId);
     return NextResponse.json({ keys });
   } catch (error: unknown) {
@@ -13,20 +18,24 @@ export async function GET() {
   }
 }
 
+const CreateKeySchema = z.object({
+  name: z.string().trim().min(3).max(64).optional(),
+});
+
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  // API key creation is sensitive — rate-limit aggressively.
+  const limited = applyRateLimit(req, "api-keys-create", RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, CreateKeySchema);
+  if (body instanceof NextResponse) return body;
+
   try {
-    const userId = await getUserId();
-    const body = await req.json().catch(() => ({}));
-    const rawName = typeof body.name === "string" ? body.name.trim() : "";
-    const name = rawName || "MindStore Everywhere";
-
-    if (name.length < 3 || name.length > 64) {
-      return NextResponse.json(
-        { error: "Key name must be between 3 and 64 characters." },
-        { status: 400 }
-      );
-    }
-
+    const name = body.name || "MindStore Everywhere";
     const apiKey = await createApiKey(userId, name);
     return NextResponse.json(apiKey);
   } catch (error: unknown) {
@@ -36,12 +45,18 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, "api-keys-revoke", RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     const id = new URL(req.url).searchParams.get("id");
 
-    if (!id) {
-      return NextResponse.json({ error: "Missing api key id." }, { status: 400 });
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
+      return NextResponse.json({ error: "Missing or invalid api key id." }, { status: 400 });
     }
 
     await revokeApiKey(userId, id);

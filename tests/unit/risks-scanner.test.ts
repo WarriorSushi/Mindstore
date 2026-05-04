@@ -48,6 +48,33 @@ describe('scanMemoryContent — secret detection', () => {
     const out = scanMemoryContent(mem('m7', 'sk-tank skipped'));
     expect(out.find((r) => r.riskType === 'secret' && /OpenAI/.test(r.description))).toBeUndefined();
   });
+
+  // Security regression: the description column is read by /api/v1/risks
+  // and rendered in /app/security. Embedding the matched secret here
+  // would defeat the whole point of detecting it. Lock the invariant:
+  // for every detector, the secret/PII content must NEVER appear in
+  // the description string. The memory id is the only pointer back.
+  it('NEVER echoes the matched secret content into the risk description', () => {
+    const cases = [
+      'sk-abcdef0123456789abcdef0123456789abcdef0123',
+      'sk-ant-abc123def456ghi789jkl012',
+      'AIza0123456789abcdefghij_KLMNOPQRSTUV',
+      'AKIAIOSFODNN7EXAMPLE',
+      'eyJhbGciOiJIUzI1NiIs.eyJzdWIiOiIxMjM0NTY3ODkwIiwib.SflKxwRJSMeKKF2QT4fwpMeJf36POk6',
+      '-----BEGIN RSA PRIVATE KEY-----\nFOOBARBAZQUUX\n',
+      '123-45-6789',
+      '+1 415 555 1234',
+    ];
+    for (const secret of cases) {
+      const out = scanMemoryContent(mem('mx', `Memory body ${secret} surrounding text`));
+      for (const risk of out) {
+        expect(risk.description).not.toContain(secret);
+        // The memory body content must not appear either, even in trimmed form.
+        expect(risk.description).not.toContain('Memory body');
+        expect(risk.description).not.toContain('surrounding text');
+      }
+    }
+  });
 });
 
 describe('scanMemoryContent — PII detection', () => {
