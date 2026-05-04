@@ -1,7 +1,7 @@
 # MindStore — Live Status
 
-**Last refreshed:** 2026-05-04
-**Refreshed by:** Claude (Opus 4.7) — mid-Phase-2/3/4 sweep + .mind file server wiring
+**Last refreshed:** 2026-05-04 (late session)
+**Refreshed by:** Claude (Opus 4.7) — autonomous improvement session: route audit + 14 fixes across 12 routes + .mind UI + reliability bugs
 **Refresh cadence:** every workstream merge updates the relevant rows; full re-audits at phase boundaries
 
 This is the **single source of truth** for the project's actual state. If a doc disagrees with this file, update the doc. If this file disagrees with the code, run the audit again and fix this file. Nothing else describes ground truth.
@@ -16,7 +16,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 |---|---|---|
 | `node_modules` installed | ✅ Installed | Verified locally (`npx vitest run` reports 441 passing). |
 | `npm run typecheck` | ✅ Passing | Last verified at the Phase 0 closure; not re-run after Phase 2/3/4 commits — re-verify before next merge. |
-| `npm test` | ✅ 451 / 451 | 63 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (16), attribution (8), mind-file (10), plus other increments. |
+| `npm test` | ✅ 452 / 452 | 63 test files. New since Phase 0: fingerprint-snapshot (6), retrieval-adversarial (5), mind-diff (11), forgetting (6), risks-scanner (17, +1 secret-leak regression test), attribution (8), mind-file (10), plus other increments. |
 | `npm run lint:ci` | ✅ Passing | Curated slice; full repo lint via `npm run lint:backlog` is a Phase 1 backlog item. |
 | `npm run build` | ✅ Passing | Last verified at Phase 0 closure; re-verify before next merge given the `src/server/mind-file/` work is untracked. |
 | Production deploy | ✅ Live at mindstore.org | Per `PRODUCTION.md`. 1 memory and 0 user-configured AI providers per the (now archived) `docs/archive/NEXT_STEPS.md`. |
@@ -31,7 +31,7 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | Layer | Count | Notes |
 |---|---|---|
 | API route files (`route.ts`) | 90 | +11 since the 2026-05-03 refresh: prior 9 (risks, mind-diff, forgetting, adversarial, fingerprint snapshots, provenance) plus `/api/v1/export/mind` and `/api/v1/import/mind` (commit `bf09e93`). |
-| App pages | 39 | +3 since the prior refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`. (Counted via `find src/app/app -name page.tsx`; the 40 in the prior refresh was a count error — corrected here.) |
+| App pages | 40 | +4 since the 2026-05-03 refresh: `/app/security`, `/app/mind-diff`, `/app/forgetting`, `/app/portable` (Phase 4 A.8 UI, commit `c25d506`). |
 | Plugin manifests in registry | 35 | README badge says 35 (matches); a counter elsewhere said 33 (line-count regex mismatch). |
 | Plugin port files | 33 | Two import plugins share UI/file paths with siblings (registry-slug mismatches). |
 | Drizzle tables | 30+ | See `src/server/schema.ts`. New tables added by Phase 2/3/4: `fingerprint_snapshots`, forgetting tables, `risks` (per migrate.ts deltas in commits `d791c83`, `7d194d8`, `0802dc3`). |
@@ -80,6 +80,10 @@ For the *plan* of how the project moves forward, see `PRODUCTION_READINESS.md`. 
 | ARCH-12 | ~~Three plugin slug mismatches: `youtube-importer` ↔ `youtube-transcript.ts`, `reddit-importer` ↔ `reddit-saved.ts`, `writing-analyzer` ↔ `writing-style.ts`.~~ | ✅ DONE (Phase 1) | Port files renamed to match registry slugs. Old slugs registered as `aliases` so the runtime + DB lookups still resolve them. API route URLs (`/api/v1/plugins/youtube-transcript` etc.) preserved for back-compat with external clients. Also fixed two latent bugs the rename surfaced: a typo in `BUILTIN_OVERRIDES` key (`writing-style` → `writing-analyzer`) that had silently disabled the writing-analyzer dashboard widget, and a missing `ui.dashboardWidgets` manifest entry. |
 | ARCH-13 | 🟡 PARTIAL (Phase 1, commit `8ee2d9d`) | Medium | `npm audit fix` applied (15 → 7 advisories). Remaining 7 require breaking-change upgrades (`next@16.2.4`, `uuid@14`); deferred to a dedicated PR with owner sign-off. |
 | ARCH-14 | ~~SSRF DNS-rebinding.~~ | ✅ PARTIAL FIX (Phase 1, commit `35cf00e`) | `safeFetch(url, opts)` resolves hostnames via `dns.lookup({all:true})` and rejects any address in a private/loopback range. `/api/v1/import-url` uses it. 9 new tests under `tests/unit/security-phase0/safe-fetch.test.ts`. Residual TOCTOU window between dns.lookup and fetch tracked for Phase 2 (custom http/https Agent with per-attempt lookup callback). |
+| ARCH-15 | ~~Forgetting scorer GREATEST bug — outer `GREATEST(COALESCE(...), m.imported_at)` silently overrode real review dates whenever `imported_at` was newer than `last_reviewed_at` (common after backdated bulk imports). Memories the user actively reviewed were treated as never-reviewed.~~ | ✅ DONE (commit `9819243`) | Removed the outer GREATEST; the inner COALESCE alone gives correct precedence (last_reviewed_at > created_at > imported_at > NOW()). |
+| ARCH-16 | ~~Unbounded full-table scans in forgetting/scorer.ts and risks/scanner.ts. A 50k-memory power-user account would load every memory's full content into Node memory before processing.~~ | ✅ DONE (commit `9819243`) | Both routes now page at 1000 rows up to a 50k hard cap. Long tail dropped — both are weekly-cron paths, not real-time. |
+| ARCH-17 | ~~N+1 INSERT loop in risks/scanner.ts persistence — one INSERT per detected risk.~~ | ✅ DONE (commit `9819243`) | Replaced with UNNEST-based batched insert (200 rows per statement), matching the pattern already used by forgetting/scorer.ts. Also added LIMIT to retrieval-adversarial.ts contradictions lookup to bound the post-processing dedup loop. |
+| ARCH-18 | ~~`/api/v1/fingerprint` used `ORDER BY RANDOM() LIMIT 100` to sample memories — forces a full sequential scan every call.~~ | ✅ DONE (commit `23d37a7`) | Replaced with `TABLESAMPLE BERNOULLI(5)` + ORDER BY created_at filler for small bases. Index-friendly. |
 
 ---
 
@@ -96,12 +100,20 @@ Severity follows OWASP-style risk weighting; full per-route table in §6.
 | SEC-5 | HIGH ✅ DONE | `/api/v1/plugin-jobs/run-due` triggers background jobs without auth. | `src/app/api/v1/plugin-jobs/run-due/route.ts` | Accepts `Bearer <INTERNAL_JOB_TOKEN>`, valid `api_keys` row, or `x-vercel-cron` header. |
 | SEC-6 | HIGH ✅ DONE | `/api/mcp` has no auth + CORS `*`. | `src/app/api/mcp/route.ts` | Bearer API key from `api_keys` required; single-user mode falls through to default user. CORS now echoes Origin only when in `MCP_ALLOWED_ORIGINS`. |
 | SEC-7 | MEDIUM ✅ DONE | `/api/health` and `/api/v1/health` leak provider configuration booleans and DB connection diagnostics. | `src/app/api/health/route.ts`, `src/app/api/v1/health/route.ts` | Public `/api/health` now returns `{status, timestamp}` only. `/api/v1/health` gated by `requireUserId()`. |
-| SEC-8 | MEDIUM | `/api/v1/backup` POST has no body shape validation, no size limits. | `src/app/api/v1/backup/route.ts` | Add Zod schema and `max-document` cap. |
-| SEC-9 | MEDIUM | `/api/v1/duplicates` POST (merge) has no rate limit; abusable for bulk delete. | `src/app/api/v1/duplicates/route.ts` | Add `RATE_LIMITS.write`. |
+| SEC-8 | MEDIUM ✅ DONE | `/api/v1/backup` POST had no body validation, no size limits, no auth, no rate limit. | `src/app/api/v1/backup/route.ts` | Commit `23d37a7`: `requireUserId` + `RATE_LIMITS.write` + Zod `RestoreSchema` with 50k-memory hard cap + per-memory size bound. |
+| SEC-9 | MEDIUM ✅ DONE | `/api/v1/duplicates` POST (merge) had no rate limit; abusable for bulk delete via `delete_both`. | `src/app/api/v1/duplicates/route.ts` | Commit `23d37a7`: `RATE_LIMITS.write` + Zod (action enum + UUID-validated idA/idB). |
 | SEC-10 | MEDIUM | `/api/v1/import` (50MB) has no per-user daily quota. | `src/app/api/v1/import/route.ts` | Add per-user daily import quota + hourly rate limit. |
 | SEC-11 | MEDIUM | `/api/v1/extension/package` returns the extension ZIP without auth. | `src/app/api/v1/extension/package/route.ts` | OK in single-user, but in multi-user gate behind the user's API key so the bundled key is per-user. |
-| SEC-12 | LOW | `/api/v1/memories` GET has no max limit. | `src/app/api/v1/memories/route.ts` | Cap at 1000 per request. |
-| SEC-13 | LOW | Settings POST hits external URLs to validate keys; no timeout, no jitter. | `src/app/api/v1/settings/route.ts` | Use `AbortController` with 5s timeout, fall back to "key saved (validation skipped)". |
+| SEC-12 | LOW ✅ DONE | `/api/v1/memories` GET had no max limit. | `src/app/api/v1/memories/route.ts` | Commit `23d37a7`: hard cap of 1000 per request via clamp on `?limit=`. |
+| SEC-13 | LOW ✅ DONE | Settings POST hit external URLs to validate keys; no timeout. | `src/app/api/v1/settings/route.ts` | Commit `23d37a7`: `fetchWithTimeout` helper wraps each provider validation in a 5s `AbortController`. On timeout the key is saved with `validationSkipped: [...]` returned to the caller. Also added Zod schema for the body (was untyped). |
+| SEC-14 | **CRITICAL** ✅ DONE | Knowledge Attack Surface scanner was leaking the secrets it detected — the matched memory content (80-char truncated window around the regex hit) was embedded into `knowledge_risks.description`, then read by `/api/v1/risks` and rendered in `/app/security`. The security tool whose job is to find leaked secrets was writing them into a plaintext column. | `src/server/risks/scanner.ts` lines 71/83 | Commit `23d37a7`: description now `Possible <pattern> detected`; `affectedMemoryIds` is the only pointer back to source. Regression test in `tests/unit/risks-scanner.test.ts` asserts the secret value never appears in any description across 8 detector cases. |
+| SEC-15 | **CRITICAL** ✅ DONE | `/api/v1/onboarding` POST mutated global settings (`onboarding_completed`, `user_name`, `ai_provider_choice`) without any auth. Any unauthenticated caller could overwrite onboarding state or flip the chosen AI provider. | `src/app/api/v1/onboarding/route.ts` | Commit `23d37a7`: `requireUserId` + `RATE_LIMITS.write` + `OnboardingPostSchema` (step bounded 0..20, aiProviderChoice enum-restricted). GET also gated. |
+| SEC-16 | **CRITICAL** ✅ DONE | `/api/v1/fingerprint` used `getUserId` (single-user fallback) instead of `requireUserId`. In OAuth deployments this leaked across user boundaries. Also unrate-limited despite running a full embedding cross-product (up to 100×100). | `src/app/api/v1/fingerprint/route.ts` | Commit `23d37a7`: `requireUserId` + `RATE_LIMITS.standard`. Replaced `ORDER BY RANDOM() LIMIT 100` with `TABLESAMPLE BERNOULLI(5)` + most-recent filler — index-friendly. |
+| SEC-17 | HIGH ✅ DONE | `/api/v1/memories` POST/PATCH/DELETE were unrate-limited. The no-arg DELETE path is a full-wipe (cascades into tree_index, connections, contradictions, facts, profile). | `src/app/api/v1/memories/route.ts` | Commit `23d37a7`: `RATE_LIMITS.write` on every mutation, Zod schemas for POST/PATCH bodies, UUID-shape validation on DELETE id, `getUserId` → `requireUserId`. |
+| SEC-18 | HIGH ✅ DONE | `/api/v1/memories/merge` was unrate-limited and unvalidated. Each call deletes a memory. | `src/app/api/v1/memories/merge/route.ts` | Commit `d93766f`: Zod schema (UUID + same-id refinement) + `RATE_LIMITS.write`. |
+| SEC-19 | HIGH ✅ DONE | `/api/v1/capture` was unrate-limited. The browser extension fans into this route, so a runaway/hostile caller could fill the DB with one POST per memory. | `src/app/api/v1/capture/route.ts` | Commit `d93766f`: `requireUserId` + `RATE_LIMITS.write` + 100-capture-per-request cap. |
+| SEC-20 | HIGH ✅ DONE | `/api/v1/api-keys` POST/DELETE — the most sensitive endpoint in the API surface (creates and revokes API keys) — had no rate limit. | `src/app/api/v1/api-keys/route.ts` | Commit `23d37a7`: `RATE_LIMITS.write` on POST + DELETE, `requireUserId`, UUID validation on revoke, Zod on create body. |
+| SEC-21 | MEDIUM ✅ DONE | `/api/v1/tags` POST/DELETE were unrate-limited; `/api/v1/notifications` POST too. | both routes | Commit `d93766f`: `RATE_LIMITS.write` + `requireUserId` on all mutation paths. |
 
 ---
 
@@ -218,6 +230,7 @@ Codes:
 | `/app/mind-diff` | PRODUCTION | NEW Phase 2 A.5 (commit `5102ffc`) |
 | `/app/forgetting` | PRODUCTION | NEW Phase 3 A.4 (commit `7d194d8`) |
 | `/app/security` | PRODUCTION | NEW Phase 4 B.2 (commit `0802dc3`) |
+| `/app/portable` | PRODUCTION | NEW Phase 4 A.8 UI (commit `c25d506`) — export + import dry-run preview for `.mind` files |
 
 **Page-state work remaining:**
 - A11Y on `/app/explore`, `/app/blog`, `/app/gaps` and a general icon-only-button sweep.
@@ -238,7 +251,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | 5 | Mind Diff | ✅ shipped (Phase 2, commit `5102ffc`) | — |
 | 6 | Cross-Pollination Engine | partial | 2 |
 | 7 | Thought Threading | absent | 3 |
-| 8 | `.mind` Portable File | 🟢 server shipped (Phase 4, commit `bf09e93`); UI follow-up pending. `POST /api/v1/export/mind` streams a `mindstore.mind/1.0` ZIP back; `POST /api/v1/import/mind` accepts multipart or raw upload, supports `?dryRun=1`, dedups by content hash. UI integration into `/app/export` + `/app/import` tabs is the remaining slice. | 4 (UI) |
+| 8 | `.mind` Portable File | ✅ shipped end-to-end (Phase 4, commits `bf09e93` server + `c25d506` UI). New page `/app/portable` wraps export/import with dry-run preview before commit. Discovery links from `/app/import` and `/app/export`; nav entry under "Sync & Export". | — |
 | 9 | Knowledge Metabolism Score | ✅ shipped (Phase 2, commit `c0cc2b2`) | — |
 | 10 | MCP Server | shipped + Bearer-auth gated (Phase 0 closed) | 2 (extended tools) |
 | N1 | Mind Marketplace | absent | 4 |
@@ -252,7 +265,7 @@ Detailed implementation sketches in `FEATURE_BACKLOG.md`. Status here is the hea
 | N9 | Memory Audit Trail | ✅ shipped (Phase 4, commit `81f0447`) | — |
 | N10 | Mind Coaching | absent | 5 |
 
-**Progress tally:** 8 fully shipped + 1 server-shipped/UI-pending (#8) of 20 innovations. (#2, #3, #4, #5, #8 server, #9, #10, #N2, #N9 done.) 11 absent or partial.
+**Progress tally:** 9 of 20 innovations shipped end-to-end. (#2, #3, #4, #5, #8, #9, #10, #N2, #N9.) 11 absent or partial.
 
 ---
 
@@ -375,7 +388,21 @@ Progress (Phase 1 work that doesn't require BLOCK-1..7 to be unblocked):
 
 - [x] B.2 Knowledge Attack Surface — `src/server/risks/scanner.ts`, two API routes, `/app/security` page. Commit `0802dc3`.
 - [x] B.9 Memory Audit Trail — `src/server/attribution/citations.ts`, provenance API route. Commit `81f0447`.
-- [🟢] A.8 `.mind` Portable File — server side shipped (commit `bf09e93`): writer/reader/merger committed, `POST /api/v1/export/mind` and `POST /api/v1/import/mind` wired with auth + write rate-limit + 200MB cap + `?dryRun=1`. 10 round-trip + rejection unit tests. Bug-fix landed on the same commit: dedup query in `merger.ts` had a Drizzle template-binding-inside-single-quotes bug that would have silently let re-imports double up; hardcoded the literal `'__mindfile_hash__'`. **Still to do:** UI tabs in `/app/export` + `/app/import` (server is ready to drive them), Vercel Blob integration decision (deferred — format is storage-agnostic so this is a runtime change, not a format change), conflict-resolver UI for the dryRun preview.
+- [x] A.8 `.mind` Portable File — server shipped (commit `bf09e93`) and UI shipped (commit `c25d506`). Writer/reader/merger committed; `POST /api/v1/export/mind` and `POST /api/v1/import/mind` with auth + write rate-limit + 200MB cap + `?dryRun=1` preview. 10 round-trip + rejection unit tests. New page `/app/portable` wraps both, with discovery links from import/export pages and a nav entry under "Sync & Export". Bug fix on the way: dedup query in `merger.ts` had a Drizzle template-binding-inside-single-quotes bug that would have silently let re-imports double up; hardcoded literal `'__mindfile_hash__'` since CONTENT_HASH_KEY isn't an injection vector. Vercel Blob integration deferred — format is storage-agnostic so it's a runtime change, not a format change.
+
+### Late-2026-05-04 autonomous improvement session
+
+The owner authorized autonomous improvement work; this session shipped 7 commits under that authority. Summary so the next session knows what landed:
+
+- `7c2f0d5` — STATUS sweep catching up to Phase 2/3/4 reality (six prior shipped innovations).
+- `bf09e93` — `.mind` file routes + 10-test round-trip + dedup bug fix.
+- `f48c69b` — STATUS update for A.8 server ship.
+- `23d37a7` — **Security hardening: 1 CRITICAL data exposure + 8 route auth/limit fixes.** Closes SEC-8 / SEC-9 / SEC-12 / SEC-13 / SEC-14 (NEW: secret-leak in risks scanner) / SEC-15 (NEW: unauthenticated onboarding mutation) / SEC-16 (NEW: cross-user fingerprint leak) / SEC-17 (NEW: unrate-limited memories destructive routes) / SEC-20 (NEW: api-keys mutation rate limit). Also fixes `/api/v1/fingerprint` `ORDER BY RANDOM()` performance bug.
+- `9819243` — **Reliability fixes from code-reviewer subagent findings.** forgetting/scorer.ts `GREATEST(...,m.imported_at)` was overriding real review dates (data-correctness bug); removed. forgetting/scorer.ts and risks/scanner.ts had unbounded `SELECT FROM memories` (OOM risk); paginated with 50k cap. risks/scanner.ts had N+1 INSERT loop on persistence; replaced with UNNEST batch. retrieval-adversarial.ts contradictions lookup had no LIMIT; capped at 10× baseLimit.
+- `d93766f` — **Security hardening pass 2.** Closes SEC-18 (memories/merge), SEC-19 (capture), SEC-21 (tags + notifications).
+- `c25d506` — `/app/portable` page + AppShell nav entry + discovery links from `/app/import` and `/app/export`.
+
+Ten of the original 21 SEC IDs are now closed. 8 new SEC IDs (SEC-14..21) created during the audit and immediately closed. SEC-10 and SEC-11 remain pending (need owner-side decisions about quotas and multi-user tenancy).
 - [ ] #N1 Mind Marketplace.
 
 Phases 5: see `PRODUCTION_READINESS.md`.
