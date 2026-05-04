@@ -13,7 +13,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   DOMAIN_PROFILES,
   detectDomain,
@@ -29,8 +30,11 @@ import {
 // ─── GET ─────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
-    const userId = await getUserId();
     await ensureInstalled();
 
     const { searchParams } = new URL(req.url);
@@ -88,10 +92,16 @@ export async function GET(req: NextRequest) {
 // ─── POST ────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-domain-embeddings', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action') || 'save-config';
-    const userId = await getUserId();
     await ensureInstalled();
 
     if (action === 'save-config') {

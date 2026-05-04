@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   ensureSentimentTimelineInstalled,
   getSentimentResults,
@@ -8,9 +9,12 @@ import {
 } from "@/server/plugins/ports/sentiment-timeline";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureSentimentTimelineInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get("action") || "results";
 
     if (action === "results") {

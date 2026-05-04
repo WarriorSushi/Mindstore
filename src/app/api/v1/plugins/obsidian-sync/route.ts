@@ -8,7 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import JSZip from 'jszip';
 import {
   ensureInstalled,
@@ -22,9 +23,12 @@ import {
 } from '@/server/plugins/ports/obsidian-sync';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get('action') || 'config';
     const config = await getObsidianConfig();
 
@@ -44,9 +48,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-obsidian-sync', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureInstalled();
-    const userId = await getUserId();
     const contentType = req.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       return NextResponse.json({ error: 'Invalid content type' }, { status: 400 });

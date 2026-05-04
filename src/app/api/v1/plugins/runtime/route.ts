@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import { getInstalledPluginMap } from "@/server/plugins/state";
 import { pluginRuntime } from "@/server/plugins/runtime";
-import { getUserId } from "@/server/user";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action") || "dashboard";
     const installedMap = await getInstalledPluginMap();
 
     if (action === "dashboard") {
-      const userId = await getUserId();
       const widgets = await Promise.all(
         pluginRuntime
           .getDashboardWidgets(installedMap, { userId })

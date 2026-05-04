@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   buildNotionImportStats,
   ensureNotionImporterReady,
@@ -10,6 +11,13 @@ import {
 } from "@/server/plugins/ports/notion-importer";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-notion-importer', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureNotionImporterReady();
 
@@ -53,7 +61,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const userId = await getUserId();
     const result = await importNotionPages({ userId, pages });
 
     return NextResponse.json({

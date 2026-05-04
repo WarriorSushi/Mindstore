@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import { importYouTubeTranscript, previewYouTubeTranscript } from "@/server/plugins/ports/youtube-importer";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-youtube-transcript', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     const { url, action } = await req.json() as { url?: string; action?: "preview" | "import" };
 
@@ -14,7 +22,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(await previewYouTubeTranscript(url));
     }
 
-    const userId = await getUserId();
     return NextResponse.json(await importYouTubeTranscript({ userId, url }));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

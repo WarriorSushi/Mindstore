@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   buildBookmarkPreview,
   ensureBrowserBookmarksReady,
@@ -39,6 +40,13 @@ async function fetchPageContent(url: string, timeoutMs: number = 8000): Promise<
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-browser-bookmarks', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureBrowserBookmarksReady();
 
@@ -77,7 +85,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(buildBookmarkPreview(parsed));
     }
 
-    const userId = await getUserId();
     return NextResponse.json(await importBrowserBookmarks({
       userId,
       parsed,

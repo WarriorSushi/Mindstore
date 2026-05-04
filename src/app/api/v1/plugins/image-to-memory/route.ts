@@ -8,7 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from "@/server/api-rate-limit";
+import { requireUserId } from "@/server/api-validation";
 import { generateEmbeddings } from "@/server/embeddings";
 import {
   ALLOWED_IMAGE_TYPES,
@@ -31,8 +32,11 @@ import {
 // ─── GET Handler ─────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
-    const userId = await getUserId();
     await ensureInstalled();
     const action = req.nextUrl.searchParams.get("action") || "images";
 
@@ -60,8 +64,14 @@ export async function GET(req: NextRequest) {
 // ─── POST Handler ────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-image-to-memory', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     await ensureInstalled();
     const contentType = req.headers.get("content-type") || "";
 

@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   analyzeKnowledgeGaps,
   ensureKnowledgeGapsInstalled,
 } from "@/server/plugins/ports/knowledge-gaps";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureKnowledgeGapsInstalled();
-    const userId = await getUserId();
     const actionParam = req.nextUrl.searchParams.get("action");
     const action = actionParam === "suggest" ? "suggest" : "analyze";
     const maxTopics = Math.min(

@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   ensureMindMapInstalled,
   generateMindMap,
 } from "@/server/plugins/ports/mind-map-generator";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureMindMapInstalled();
-    const userId = await getUserId();
     const maxTopics = Math.min(Number.parseInt(req.nextUrl.searchParams.get("maxTopics") || "12", 10), 20);
     const maxDepth = Math.min(Number.parseInt(req.nextUrl.searchParams.get("maxDepth") || "3", 10), 4);
 

@@ -11,9 +11,14 @@ import {
   RESUME_TEMPLATES,
   updateResume,
 } from "@/server/plugins/ports/resume-builder";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from "@/server/api-rate-limit";
+import { requireUserId } from "@/server/api-validation";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureResumeBuilderInstalled();
     const action = req.nextUrl.searchParams.get("action") || "list";
@@ -45,9 +50,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-resume-builder', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
     await ensureResumeBuilderInstalled();
-    const userId = await getUserId();
     const url = new URL(req.url);
     const action = url.searchParams.get("action") || "";
     const body = await req.json().catch(() => ({}));

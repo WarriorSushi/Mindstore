@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   ensureContradictionFinderInstalled,
   listContradictions,
@@ -8,9 +9,12 @@ import {
 } from "@/server/plugins/ports/contradiction-finder";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureContradictionFinderInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get("action") || "results";
 
     if (action === "results") {
@@ -29,9 +33,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-contradiction-finder', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureContradictionFinderInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get("action") || "resolve";
 
     if (action === "scan") {

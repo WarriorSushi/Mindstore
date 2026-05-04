@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   analyzeTopicEvolution,
   ensureTopicEvolutionInstalled,
 } from "@/server/plugins/ports/topic-evolution";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureTopicEvolutionInstalled();
-    const userId = await getUserId();
     const granularityParam = req.nextUrl.searchParams.get("granularity");
     const granularity = granularityParam === "week" || granularityParam === "quarter" ? granularityParam : "month";
     const maxTopics = Math.min(

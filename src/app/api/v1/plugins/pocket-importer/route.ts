@@ -8,7 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   ensureInstalled,
   getPocketConfig,
@@ -17,13 +18,16 @@ import {
 } from "@/server/plugins/ports/pocket-importer";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureInstalled();
     const action = req.nextUrl.searchParams.get("action") || "config";
 
     if (action === "config") return NextResponse.json(getPocketConfig());
     if (action === "stats") {
-      const userId = await getUserId();
       return NextResponse.json(await getPocketStats(userId));
     }
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
@@ -34,9 +38,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-pocket-importer', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureInstalled();
-    const userId = await getUserId();
     const body = await req.json();
 
     if (body.action === "import-pocket" || body.action === "import-instapaper") {

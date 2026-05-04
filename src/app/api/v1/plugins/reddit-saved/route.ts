@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   buildRedditSampleItems,
   buildRedditStats,
@@ -55,6 +56,13 @@ async function processZipExport(buffer: ArrayBuffer): Promise<{ posts: RedditPos
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-reddit-saved', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureRedditSavedReady();
 
@@ -108,7 +116,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const userId = await getUserId();
     return NextResponse.json(await importRedditItems({ userId, posts, comments }));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to import Reddit data";

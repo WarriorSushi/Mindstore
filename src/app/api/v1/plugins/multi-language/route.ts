@@ -8,7 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import { getTextGenerationConfig, callTextPrompt } from '@/server/ai-client';
 import {
   LANGUAGES,
@@ -38,10 +39,13 @@ async function makeCallAI(): Promise<CallAI | null> {
 // ─── GET Handler ─────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action') || 'stats';
-    const userId = await getUserId();
 
     if (action === 'stats') {
       return NextResponse.json(await getLanguageStats(userId));
@@ -96,10 +100,16 @@ export async function GET(req: NextRequest) {
 // ─── POST Handler ────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-multi-language', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action') || 'tag';
-    const userId = await getUserId();
     const callAI = await makeCallAI();
 
     if (action === 'tag') {

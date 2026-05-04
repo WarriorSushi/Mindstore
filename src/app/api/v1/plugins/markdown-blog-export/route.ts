@@ -7,7 +7,8 @@
  * Logic delegated to src/server/plugins/ports/markdown-blog-export.ts
  */
 
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import { NextRequest, NextResponse } from 'next/server';
 import JSZip from 'jszip';
 import {
@@ -22,9 +23,12 @@ import {
 } from '@/server/plugins/ports/markdown-blog-export';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get('action') || 'config';
 
     if (action === 'config') {
@@ -58,9 +62,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-markdown-blog-export', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureInstalled();
-    const userId = await getUserId();
     const body = await req.json();
 
     if (body.action === 'export') {

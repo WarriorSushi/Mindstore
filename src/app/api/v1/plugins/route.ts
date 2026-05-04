@@ -20,9 +20,14 @@ import {
   runPluginJob,
   upsertPluginJobSchedule,
 } from '@/server/plugin-jobs';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
@@ -31,7 +36,6 @@ export async function GET(req: NextRequest) {
 
     // ─── Single plugin detail ─────────────────────────────────
     if (slug) {
-      const userId = await getUserId();
       const canonicalSlug = pluginRuntime.resolveSlug(slug) ?? slug;
       const manifest = pluginRuntime.getManifest(canonicalSlug);
       if (!manifest) {
@@ -118,6 +122,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-mutate', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const { action, slug, config } = body;
@@ -302,7 +313,6 @@ export async function POST(req: NextRequest) {
 
       // ─── CONFIGURE JOB SCHEDULE ───────────────────────────
       case 'configure-job-schedule': {
-        const userId = await getUserId();
         const jobId = typeof body.jobId === 'string' ? body.jobId : '';
         const enabled = body.enabled !== false;
         const intervalMinutes =
@@ -346,7 +356,6 @@ export async function POST(req: NextRequest) {
 
       // ─── RUN JOB ───────────────────────────────────────────
       case 'run-job': {
-        const userId = await getUserId();
         const jobId = typeof body.jobId === 'string' ? body.jobId : '';
         const reason = typeof body.reason === 'string' ? body.reason : undefined;
 

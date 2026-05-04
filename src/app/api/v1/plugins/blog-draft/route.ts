@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from "@/server/api-rate-limit";
+import { requireUserId } from "@/server/api-validation";
 import {
   deleteBlogDraft,
   ensureBlogDraftInstalled,
@@ -13,9 +14,12 @@ import {
 } from "@/server/plugins/ports/blog-draft";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     await ensureBlogDraftInstalled();
-    const userId = await getUserId();
     const action = req.nextUrl.searchParams.get("action") || "drafts";
 
     if (action === "drafts") {
@@ -45,9 +49,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-blog-draft', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
     await ensureBlogDraftInstalled();
-    const userId = await getUserId();
     const body = await req.json();
     const action = typeof body.action === "string" ? body.action : "";
 

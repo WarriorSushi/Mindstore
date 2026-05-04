@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   ensureKindleImporterInstalled,
   getKindleImporterConfig,
@@ -8,9 +9,15 @@ import {
 } from "@/server/plugins/ports/kindle-importer";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-kindle-importer', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureKindleImporterInstalled();
-    const userId = await getUserId();
     const { shouldDedup } = await getKindleImporterConfig();
 
     const formData = await req.formData();

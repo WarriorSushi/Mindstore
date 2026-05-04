@@ -11,7 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import { retrieve } from '@/server/retrieval';
 import { generateEmbeddings, getEmbeddingConfig } from '@/server/embeddings';
 import { getTextGenerationConfig, callTextPrompt } from '@/server/ai-client';
@@ -50,10 +51,13 @@ const deps = {
 // ─── Route Handlers ─────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get('action') || 'config';
-    const userId = await getUserId();
 
     if (action === 'config') {
       const config = await getRAGConfig();
@@ -105,10 +109,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-custom-rag', RATE_LIMITS.ai);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const { action } = body;
-    const userId = await getUserId();
 
     if (action === 'save-config') {
       const { strategy, enabledLayers, rrfK, treeBoost, rerankTopK, multiQueryCount, compressionMaxTokens } = body;

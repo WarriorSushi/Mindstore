@@ -7,7 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/server/user";
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 import {
   analyzeVault,
   buildObsidianPreview,
@@ -17,6 +18,13 @@ import {
 } from "@/server/plugins/ports/obsidian-importer";
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'plugin-obsidian-importer', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
     await ensureObsidianImporterReady();
 
@@ -55,7 +63,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(buildObsidianPreview(vault));
     }
 
-    const userId = await getUserId();
     const result = await importVault(userId, vault);
     return NextResponse.json({ imported: result });
   } catch (error: unknown) {
