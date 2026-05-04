@@ -26,110 +26,23 @@ This is the **one thing that will break your deployment if you skip it.** All pr
 
 ### Option A — paste SQL into Supabase SQL Editor (fastest, what you asked about)
 
-Open Supabase → SQL Editor → New query. Paste each of these blocks **in order** and click Run. They're idempotent — safe to run multiple times, safe even if some tables already exist.
+Three SQL files in the `db/` directory at the repo root:
 
-**1. Required extensions** (only needed first time; Supabase usually has these on already)
+1. **`db/1-discover.sql`** — read-only. Tells you what's in your DB right now. Run this first.
+2. **`db/2-migrate-this-push.sql`** — just the changes for this push (settings + subscriptions + usage_records).
+3. **`db/3-full-schema.sql`** — every table, idempotent, brings any DB to the right state.
 
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-```
+Workflow:
+- Open Supabase → SQL Editor → New query
+- Paste `1-discover.sql`, click Run, read the output
+- Based on what you see, paste `2-migrate-this-push.sql` (most likely) or `3-full-schema.sql` (if many tables are missing)
+- Re-run `1-discover.sql` to verify
 
-**2. Per-user settings migration (ARCH-1)** — this is the critical one for this deploy
+See [`db/README.md`](./db/README.md) for the decision tree and details on what each file does.
 
-```sql
--- Add user_id column to settings table
-ALTER TABLE settings ADD COLUMN IF NOT EXISTS user_id UUID;
-
--- Backfill existing rows to the default user
-UPDATE settings
-SET user_id = '00000000-0000-0000-0000-000000000001'::uuid
-WHERE user_id IS NULL;
-
--- Lock the column
-ALTER TABLE settings ALTER COLUMN user_id SET NOT NULL;
-
--- Drop the old global UNIQUE(key) constraint (name varies by Postgres version,
--- so try both common variants — at most one will exist).
-DO $$ BEGIN
-  ALTER TABLE settings DROP CONSTRAINT settings_key_key;
-EXCEPTION WHEN undefined_object THEN null; END $$;
-
-DO $$ BEGIN
-  ALTER TABLE settings DROP CONSTRAINT settings_key_unique;
-EXCEPTION WHEN undefined_object THEN null; END $$;
-
--- Add the new per-user UNIQUE constraint
-DO $$ BEGIN
-  ALTER TABLE settings ADD CONSTRAINT settings_user_key_unique UNIQUE (user_id, key);
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
--- Index for per-user lookups
-CREATE INDEX IF NOT EXISTS idx_settings_user ON settings (user_id);
-```
-
-**3. Subscriptions table** (Stripe-backed, even if you're not charging yet)
-
-```sql
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-  stripe_customer_id TEXT,
-  stripe_subscription_id TEXT,
-  tier TEXT NOT NULL DEFAULT 'free',
-  status TEXT NOT NULL DEFAULT 'active',
-  current_period_start TIMESTAMPTZ,
-  current_period_end TIMESTAMPTZ,
-  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer
-  ON subscriptions (stripe_customer_id);
-
-CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub
-  ON subscriptions (stripe_subscription_id);
-```
-
-**4. Usage records table** (per-user token tracking, for bundled-AI mode)
-
-```sql
-CREATE TABLE IF NOT EXISTS usage_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  month_key TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  provider TEXT NOT NULL DEFAULT 'gateway',
-  amount BIGINT NOT NULL DEFAULT 0,
-  cost_micros BIGINT NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-DO $$ BEGIN
-  ALTER TABLE usage_records ADD CONSTRAINT usage_records_unique
-    UNIQUE (user_id, month_key, kind, provider);
-EXCEPTION WHEN duplicate_object THEN null; END $$;
-
-CREATE INDEX IF NOT EXISTS idx_usage_user_month
-  ON usage_records (user_id, month_key);
-```
-
-After running all four blocks, run this verification query — it should return rows for all three:
-
-```sql
-SELECT table_name FROM information_schema.tables
-WHERE table_name IN ('settings', 'subscriptions', 'usage_records');
-
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'settings' AND column_name = 'user_id';
--- Should return one row: user_id
-```
-
-- [ ] All four SQL blocks run cleanly in Supabase
-- [ ] Verification query confirms `settings.user_id` exists and the two new tables exist
+- [ ] Ran `db/1-discover.sql` — you have an answer about current DB state
+- [ ] Ran the appropriate migration file based on the discover output
+- [ ] Re-ran `db/1-discover.sql` and saw all expected tables and columns
 
 ### Option B — run `npm run migrate` from your laptop (also fine, runs everything)
 
