@@ -46,6 +46,10 @@ const EXPLICITLY_PUBLIC = new Set<string>([
   // Internal cron trigger; uses INTERNAL_JOB_TOKEN bearer or
   // x-vercel-cron header for auth instead of requireUserId.
   'plugin-jobs/run-due/route.ts',
+  // Stripe webhook receiver. Stripe doesn't carry a user session; the
+  // signature header (verified against STRIPE_WEBHOOK_SECRET) is the
+  // auth. Adding requireUserId would break the integration.
+  'billing/webhook/route.ts',
 ]);
 
 /**
