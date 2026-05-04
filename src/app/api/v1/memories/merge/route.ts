@@ -1,32 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
-import { getUserId } from '@/server/user';
 import { generateEmbeddings } from '@/server/embeddings';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { parseJsonBody, requireUserId } from '@/server/api-validation';
+
+const MergeSchema = z.object({
+  primaryId: z.string().uuid(),
+  secondaryId: z.string().uuid(),
+  separator: z.string().max(200).optional(),
+}).refine((v) => v.primaryId !== v.secondaryId, {
+  message: 'Cannot merge a memory with itself',
+});
 
 /**
- * POST /api/v1/memories/merge — merge two memories into one
- * 
+ * POST /api/v1/memories/merge — merge two memories into one.
+ *
  * Combines content of two memories, keeps the first one's metadata,
  * re-embeds the merged content, and deletes the second memory.
- * 
- * Body: { primaryId: string, secondaryId: string, separator?: string }
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'memories-merge', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  const body = await parseJsonBody(req, MergeSchema);
+  if (body instanceof NextResponse) return body;
+
+  const { primaryId, secondaryId } = body;
+  const separator = body.separator ?? '\n\n---\n\n';
+
   try {
-    const userId = await getUserId();
-    const body = await req.json();
-    const { primaryId, secondaryId, separator = '\n\n---\n\n' } = body;
-
-    if (!primaryId || !secondaryId) {
-      return NextResponse.json({ error: 'primaryId and secondaryId required' }, { status: 400 });
-    }
-
-    if (primaryId === secondaryId) {
-      return NextResponse.json({ error: 'Cannot merge a memory with itself' }, { status: 400 });
-    }
-
-    // Fetch both memories
     const [primaryRes, secondaryRes] = await Promise.all([
       db.execute(sql`
         SELECT id, content, source_type, source_title, metadata, created_at
@@ -44,12 +52,9 @@ export async function POST(req: NextRequest) {
     if (!primary) return NextResponse.json({ error: 'Primary memory not found' }, { status: 404 });
     if (!secondary) return NextResponse.json({ error: 'Secondary memory not found' }, { status: 404 });
 
-    // Merge content
     const mergedContent = `${primary.content}${separator}${secondary.content}`;
 
-    // Merge metadata
     const primaryMeta = primary.metadata || {};
-    const secondaryMeta = secondary.metadata || {};
     const mergedMeta = {
       ...primaryMeta,
       merged: true,
@@ -61,7 +66,6 @@ export async function POST(req: NextRequest) {
       ],
     };
 
-    // Re-embed the merged content
     let embStr: string | null = null;
     try {
       const embeddings = await generateEmbeddings([mergedContent]);
@@ -70,28 +74,25 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* non-fatal */ }
 
-    // Update primary memory
     const metaStr = JSON.stringify(mergedMeta);
     if (embStr) {
       await db.execute(sql`
-        UPDATE memories 
+        UPDATE memories
         SET content = ${mergedContent}, embedding = ${embStr}::vector, metadata = ${metaStr}::jsonb
         WHERE id = ${primaryId}::uuid AND user_id = ${userId}::uuid
       `);
     } else {
       await db.execute(sql`
-        UPDATE memories 
+        UPDATE memories
         SET content = ${mergedContent}, metadata = ${metaStr}::jsonb
         WHERE id = ${primaryId}::uuid AND user_id = ${userId}::uuid
       `);
     }
 
-    // Delete secondary memory
     await db.execute(sql`
       DELETE FROM memories WHERE id = ${secondaryId}::uuid AND user_id = ${userId}::uuid
     `);
 
-    // Move tags from secondary to primary
     try {
       await db.execute(sql`
         INSERT INTO memory_tags (memory_id, tag_id)

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, schema } from '@/server/db';
 import { eq, desc, and, count } from 'drizzle-orm';
-import { getUserId } from '@/server/user';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 
 /**
  * GET /api/v1/notifications
@@ -14,12 +15,14 @@ import { getUserId } from '@/server/user';
  * Returns: { notifications: [...], unreadCount: number, total: number }
  */
 export async function GET(req: NextRequest) {
-  try {
-    const userId = await getUserId();
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
+  try {
     const url = new URL(req.url);
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
-    const offset = parseInt(url.searchParams.get('offset') || '0');
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '20', 10) || 20, 1), 100);
+    const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
     const unreadOnly = url.searchParams.get('unread') === 'true';
 
     // Build conditions
@@ -88,8 +91,14 @@ export async function GET(req: NextRequest) {
  * Special action: { action: "delete", id: string }
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'notifications-mutate', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     const body = await req.json();
 
     // Handle special actions

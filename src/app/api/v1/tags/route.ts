@@ -1,7 +1,8 @@
-import { getUserId } from '@/server/user';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { sql } from 'drizzle-orm';
+import { applyRateLimit, RATE_LIMITS } from '@/server/api-rate-limit';
+import { requireUserId } from '@/server/api-validation';
 
 const TAG_COLORS = ['teal', 'sky', 'emerald', 'amber', 'red', 'blue', 'orange', 'zinc'] as const;
 
@@ -9,8 +10,11 @@ const TAG_COLORS = ['teal', 'sky', 'emerald', 'amber', 'red', 'blue', 'orange', 
  * GET /api/v1/tags — list all tags with memory counts
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
   try {
-    const userId = await getUserId();
 
     const { searchParams } = new URL(req.url);
     const memoryId = searchParams.get('memoryId');
@@ -54,8 +58,14 @@ export async function GET(req: NextRequest) {
  * Body: { action: "recolor", tagId, color } — change tag color
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, 'tags-mutate', RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     const body = await req.json();
 
     // ── Assign tag to memories ──
@@ -179,13 +189,18 @@ export async function POST(req: NextRequest) {
  * DELETE /api/v1/tags?id=<tagId>
  */
 export async function DELETE(req: NextRequest) {
-  try {
-    const userId = await getUserId();
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
 
+  const limited = applyRateLimit(req, 'tags-delete', RATE_LIMITS.write);
+  if (limited) return limited;
+
+  try {
     const { searchParams } = new URL(req.url);
     const tagId = searchParams.get('id');
-    if (!tagId) {
-      return NextResponse.json({ error: 'Tag id required' }, { status: 400 });
+    if (!tagId || !/^[0-9a-f-]{36}$/i.test(tagId)) {
+      return NextResponse.json({ error: 'Valid tag id required' }, { status: 400 });
     }
 
     // Delete tag (cascade deletes memory_tags rows)

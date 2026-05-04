@@ -1,16 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CapturePayload } from "@mindstore/plugin-sdk";
 import { importDocuments } from "@/server/import-service";
-import { getUserId } from "@/server/user";
 import { normalizeCaptureBatch } from "@/server/capture";
 import { getInstalledPluginMap } from "@/server/plugins/state";
 import { applyDocumentHookTransforms } from "@/server/plugins/ingestion";
+import { applyRateLimit, RATE_LIMITS } from "@/server/api-rate-limit";
+import { requireUserId } from "@/server/api-validation";
+
+const MAX_CAPTURES_PER_REQUEST = 100;
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUserId();
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth;
+
+  const limited = applyRateLimit(req, "capture", RATE_LIMITS.write);
+  if (limited) return limited;
+
   try {
-    const userId = await getUserId();
     const body = await req.json();
     const captures = extractCapturePayloads(body);
+    if (captures.length > MAX_CAPTURES_PER_REQUEST) {
+      return NextResponse.json(
+        { error: `Too many captures in one request (${captures.length}). Max ${MAX_CAPTURES_PER_REQUEST}.` },
+        { status: 413 },
+      );
+    }
     const documents = normalizeCaptureBatch(captures);
     const installedPlugins = await getInstalledPluginMap();
 
